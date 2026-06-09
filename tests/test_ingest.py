@@ -4,7 +4,7 @@ from datetime import date
 from pathlib import Path
 
 from pmao.models import Initiative
-from pmao.ingest import apply_updates, _append, _build_ingest_prompt
+from pmao.ingest import apply_updates, _build_ingest_prompt
 from pmao.vault import init_vault, save_initiatives, load_initiatives
 
 
@@ -14,21 +14,6 @@ def _make_initiative(id_="init-001", name="Customer Data Platform", status="not_
         created=date(2026, 6, 8), last_touched=date(2026, 6, 8)
     )
 
-
-def test_append_none_existing():
-    assert _append(None, "new text") == "new text"
-
-
-def test_append_empty_existing():
-    assert _append("", "new text") == "new text"
-
-
-def test_append_extends_with_newline():
-    assert _append("existing", "new") == "existing\nnew"
-
-
-def test_append_empty_new_preserves_existing():
-    assert _append("existing", "") == "existing"
 
 
 def test_apply_updates_maps_generic_fields():
@@ -90,18 +75,18 @@ def test_apply_updates_skips_unknown_initiative():
         assert initiatives[0].current_state is None
 
 
-def test_apply_updates_appends_existing_next_steps():
+def test_apply_updates_overwrites_existing_next_steps():
     with tempfile.TemporaryDirectory() as tmp:
         vault = Path(tmp)
         init_vault(vault)
         init = _make_initiative(status="in_progress")
-        init.coordination_next_steps = "- Existing step"
+        init.coordination_next_steps = "- Old step"
         save_initiatives(vault, [init])
 
         extraction = {
             "initiatives_updated": [{
                 "initiative_id": "init-001",
-                "coordination_next_steps": "- New step added",
+                "coordination_next_steps": "- New step replaces old",
                 "current_state": "",
                 "outstanding_questions": "",
                 "outstanding_meetings": "",
@@ -115,8 +100,37 @@ def test_apply_updates_appends_existing_next_steps():
         apply_updates(vault, extraction, "source.md")
 
         initiatives = load_initiatives(vault)
-        assert "- Existing step" in initiatives[0].coordination_next_steps
-        assert "- New step added" in initiatives[0].coordination_next_steps
+        assert initiatives[0].coordination_next_steps == "- New step replaces old"
+        assert "- Old step" not in initiatives[0].coordination_next_steps
+
+
+def test_apply_updates_leaves_field_when_new_is_empty():
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp)
+        init_vault(vault)
+        init = _make_initiative(status="in_progress")
+        init.coordination_next_steps = "- Preserved step"
+        save_initiatives(vault, [init])
+
+        extraction = {
+            "initiatives_updated": [{
+                "initiative_id": "init-001",
+                "coordination_next_steps": "",
+                "current_state": "New state",
+                "outstanding_questions": "",
+                "outstanding_meetings": "",
+                "last_touch_comment": "",
+                "last_touch_timestamp": "",
+                "materials_link": "",
+            }],
+            "action_items": [],
+            "open_questions": [],
+        }
+        apply_updates(vault, extraction, "source.md")
+
+        initiatives = load_initiatives(vault)
+        assert initiatives[0].coordination_next_steps == "- Preserved step"
+        assert initiatives[0].current_state == "New state"
 
 
 def test_build_ingest_prompt_substitutes_placeholders():

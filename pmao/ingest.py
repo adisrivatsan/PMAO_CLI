@@ -1,7 +1,7 @@
 import json
 from datetime import date
 from pathlib import Path
-from typing import List, Optional
+from typing import List
 
 from pmao.models import Initiative
 from pmao.vault import load_initiatives, save_initiatives
@@ -24,13 +24,6 @@ def _build_ingest_prompt(skill: str, initiatives: List[Initiative], source_text:
     return skill.replace("{initiatives}", init_list).replace("{source}", source_text)
 
 
-def _append(existing: Optional[str], new_text: str) -> str:
-    if not new_text:
-        return existing or ""
-    if not existing:
-        return new_text
-    return f"{existing}\n{new_text}"
-
 
 def apply_updates(vault_path: Path, extraction: dict, transcript_name: str) -> None:
     initiatives = load_initiatives(vault_path)
@@ -42,11 +35,21 @@ def apply_updates(vault_path: Path, extraction: dict, transcript_name: str) -> N
         if iid not in idx:
             continue
         init = idx[iid]
-        init.current_state = _append(init.current_state, update.get("current_state", ""))
-        init.coordination_next_steps = _append(init.coordination_next_steps, update.get("coordination_next_steps", ""))
-        init.outstanding_questions = _append(init.outstanding_questions, update.get("outstanding_questions", ""))
-        init.outstanding_meetings = _append(init.outstanding_meetings, update.get("outstanding_meetings", ""))
-        init.last_touch_comment = _append(init.last_touch_comment, update.get("last_touch_comment", ""))
+        val = update.get("current_state", "")
+        if val:
+            init.current_state = val
+        val = update.get("coordination_next_steps", "")
+        if val:
+            init.coordination_next_steps = val
+        val = update.get("outstanding_questions", "")
+        if val:
+            init.outstanding_questions = val
+        val = update.get("outstanding_meetings", "")
+        if val:
+            init.outstanding_meetings = val
+        val = update.get("last_touch_comment", "")
+        if val:
+            init.last_touch_comment = val
         ts = update.get("last_touch_timestamp", "")
         if ts:
             try:
