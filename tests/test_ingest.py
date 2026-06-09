@@ -2,6 +2,7 @@ import json
 import tempfile
 from datetime import date
 from pathlib import Path
+from unittest.mock import patch
 
 from pmao.models import Initiative
 from pmao.ingest import apply_updates, _build_ingest_prompt
@@ -245,3 +246,53 @@ def test_apply_updates_hypothesis_with_null_initiative_id():
         hypotheses = json.loads((vault / "hypotheses.json").read_text())
         assert len(hypotheses) == 1
         assert hypotheses[0]["initiative_id"] is None
+
+
+def test_run_update_writes_to_vault():
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp)
+        init_vault(vault)
+        init = _make_initiative(status="in_progress")
+        save_initiatives(vault, [init])
+
+        extraction = {
+            "initiatives_updated": [{
+                "initiative_id": "init-001",
+                "current_state": "Budget confirmed by Jane",
+                "coordination_next_steps": "",
+                "outstanding_questions": "",
+                "outstanding_meetings": "",
+                "last_touch_comment": "[notes] Jane confirmed budget",
+                "last_touch_timestamp": "2026-06-09",
+                "materials_link": "",
+            }],
+            "action_items": [],
+            "open_questions": [],
+            "decisions": [],
+            "hypotheses": [],
+        }
+
+        with patch("pmao.llm.call_structured", return_value=extraction), \
+             patch("pmao.ingest._load_skill", return_value="{initiatives}\n{user_note}"), \
+             patch("builtins.input", side_effect=["Jane confirmed budget for init-001", "y"]):
+            from pmao.ingest import run_update
+            run_update(vault, yes=False)
+
+        initiatives = load_initiatives(vault)
+        assert initiatives[0].current_state == "Budget confirmed by Jane"
+        assert (vault / "workbook.xlsx").exists()
+
+
+def test_run_update_aborts_on_empty_note():
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp)
+        init_vault(vault)
+        save_initiatives(vault, [_make_initiative(status="in_progress")])
+
+        with patch("pmao.ingest._load_skill", return_value="{initiatives}\n{user_note}"), \
+             patch("builtins.input", return_value=""):
+            from pmao.ingest import run_update
+            run_update(vault, yes=False)
+
+        initiatives = load_initiatives(vault)
+        assert initiatives[0].current_state is None  # unchanged

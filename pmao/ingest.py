@@ -207,14 +207,69 @@ def run_status(vault_path: Path, config_override: str = None) -> None:
     print(call_text(prompt, config_override=config_override))
 
 
-def run_update(vault_path: Path, config_override: str = None) -> None:
-    from pmao.llm import call_text
+def _build_update_prompt(skill: str, initiatives: List[Initiative], user_note: str) -> str:
+    init_list = "\n".join(
+        f"  {i.id}: {i.name} (status: {i.status})\n"
+        f"    current_state: {i.current_state or 'none'}\n"
+        f"    coordination_next_steps: {i.coordination_next_steps or 'none'}"
+        for i in initiatives
+    )
+    return skill.replace("{initiatives}", init_list).replace("{user_note}", user_note)
+
+
+def run_update(vault_path: Path, config_override: str = None, yes: bool = False) -> None:
+    from pmao.llm import call_structured
 
     initiatives = load_initiatives(vault_path)
+    print("Initiatives:")
+    for i in initiatives:
+        print(f"  {i.id}: {i.name} ({i.status})")
+
+    user_note = input("\nDescribe the update (e.g. 'Jane confirmed budget for init-003'): ").strip()
+    if not user_note:
+        print("No update provided. Aborted.")
+        return
+
     skill = _load_skill("update")
-    init_list = "\n".join(f"  {i.id}: {i.name} ({i.status})" for i in initiatives)
-    prompt = skill.replace("{initiatives}", init_list)
-    print(call_text(prompt, config_override=config_override))
+    prompt = _build_update_prompt(skill, initiatives, user_note)
+
+    print("Calling LLM for extraction...")
+    extraction = call_structured(prompt, config_override=config_override)
+    extraction.setdefault("initiatives_updated", [])
+    extraction.setdefault("action_items", [])
+    extraction.setdefault("open_questions", [])
+    extraction.setdefault("decisions", [])
+    extraction.setdefault("hypotheses", [])
+
+    init_updates = extraction["initiatives_updated"]
+    action_items = extraction["action_items"]
+    questions = extraction["open_questions"]
+    decisions = extraction["decisions"]
+    hypotheses = extraction["hypotheses"]
+
+    print(f"\n--- Extraction results ---")
+    print(f"Initiatives updated: {len(init_updates)}")
+    for u in init_updates:
+        iid = u.get("initiative_id", "?")
+        name = next((i.name for i in initiatives if i.id == iid), iid)
+        print(f"  [{iid}] {name}")
+    print(f"Action items: {len(action_items)}")
+    print(f"Open questions: {len(questions)}")
+    print(f"Decisions: {len(decisions)}")
+    print(f"Hypotheses: {len(hypotheses)}")
+
+    if not init_updates and not action_items and not questions and not decisions and not hypotheses:
+        print("\nNothing extracted — no changes made.")
+        return
+
+    if not yes:
+        answer = input("\nApply these updates? [y/N] ").strip().lower()
+        if answer != "y":
+            print("Aborted.")
+            return
+
+    apply_updates(vault_path, extraction, transcript_name=f"manual-update-{date.today().isoformat()}")
+    print(f"\nDone. workbook.xlsx updated.")
 
 
 def run_summarize(vault_path: Path, config_override: str = None) -> None:
