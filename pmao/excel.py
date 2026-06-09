@@ -118,9 +118,8 @@ def create_workbook(
         }
         _write_data_row(ws_init, row_num, INITIATIVE_COLS, record)
 
-    if initiatives:
-        status_col = INITIATIVE_COLS.index("status") + 1
-        _add_status_cf(ws_init, status_col, 1 + len(initiatives), len(INITIATIVE_COLS))
+    status_col = INITIATIVE_COLS.index("status") + 1
+    _add_status_cf(ws_init, status_col, max(2, 1 + len(initiatives)), len(INITIATIVE_COLS))
 
     ws_init.column_dimensions["A"].width = 10
     ws_init.column_dimensions["B"].width = 32
