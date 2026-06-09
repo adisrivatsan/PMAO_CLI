@@ -19,7 +19,7 @@ def _make_initiative(id_="init-001", **kwargs):
     return Initiative(id=id_, **defaults)
 
 
-def test_workbook_has_five_tabs():
+def test_workbook_has_six_tabs():
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "test.xlsx"
         create_workbook(path, [])
@@ -30,7 +30,80 @@ def test_workbook_has_five_tabs():
             "Last Touch Log",
             "Meeting Requests",
             "Milestones",
+            "Hypotheses",
         ]
+
+
+def test_hypotheses_tab_has_headers():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "test.xlsx"
+        create_workbook(path, [])
+        wb = load_workbook(path)
+        ws = wb["Hypotheses"]
+        headers = [ws.cell(1, c).value for c in range(1, ws.max_column + 1)]
+        assert headers == ["id", "level", "initiative", "hypothesis", "owner", "validation_path", "status", "created", "source"]
+
+
+def test_hypotheses_tab_project_level_rows_first():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "test.xlsx"
+        init = _make_initiative()
+        hyps = [
+            {
+                "id": "hyp-2026-06-09-0001",
+                "initiative_id": "init-001",
+                "hypothesis": "Initiative-level hypothesis",
+                "owner": "",
+                "validation_path": "",
+                "status": "open",
+                "created": "2026-06-09",
+                "source": "call.vtt",
+            },
+            {
+                "id": "hyp-2026-06-09-0000",
+                "initiative_id": None,
+                "hypothesis": "Project-level hypothesis",
+                "owner": "",
+                "validation_path": "",
+                "status": "open",
+                "created": "2026-06-09",
+                "source": "call.vtt",
+            },
+        ]
+        create_workbook(path, [init], hypotheses=hyps)
+        wb = load_workbook(path)
+        ws = wb["Hypotheses"]
+        # Row 2 should be the project-level hypothesis (initiative_id None)
+        level_col = 2  # "level" is column index 2
+        assert ws.cell(2, level_col).value == "Project"
+        assert ws.cell(3, level_col).value == "Initiative"
+
+
+def test_hypotheses_tab_populates_level_column():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "test.xlsx"
+        init = _make_initiative()
+        hyps = [
+            {
+                "id": "hyp-2026-06-09-0001",
+                "initiative_id": "init-001",
+                "hypothesis": "Small practices respond better to outcome-based pricing",
+                "owner": "Alex Chen",
+                "validation_path": "Run A/B test",
+                "status": "open",
+                "created": "2026-06-09",
+                "source": "strategy-call.vtt",
+            },
+        ]
+        create_workbook(path, [init], hypotheses=hyps)
+        wb = load_workbook(path)
+        ws = wb["Hypotheses"]
+        headers = {ws.cell(1, c).value: c for c in range(1, ws.max_column + 1)}
+        assert ws.cell(2, headers["level"]).value == "Initiative"
+        assert ws.cell(2, headers["initiative"]).value == "Customer Data Platform"
+        assert ws.cell(2, headers["hypothesis"]).value == "Small practices respond better to outcome-based pricing"
+        assert ws.cell(2, headers["owner"]).value == "Alex Chen"
+        assert ws.cell(2, headers["status"]).value == "open"
 
 
 def test_initiatives_tab_generic_headers():

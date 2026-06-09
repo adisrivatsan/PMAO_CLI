@@ -42,6 +42,11 @@ MILESTONE_COLS = [
     "initiative_ids", "context", "status",
 ]
 
+HYPOTHESIS_COLS = [
+    "id", "level", "initiative", "hypothesis", "owner",
+    "validation_path", "status", "created", "source",
+]
+
 # ── Styles ─────────────────────────────────────────────────────────────────────
 
 _HEADER_FILL = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
@@ -90,6 +95,7 @@ def create_workbook(
     initiatives: List[Initiative],
     meeting_requests: Optional[list] = None,
     milestones: Optional[list] = None,
+    hypotheses: Optional[list] = None,
 ) -> None:
     wb = Workbook()
 
@@ -185,5 +191,47 @@ def create_workbook(
         for row_num, ms in enumerate(milestones, start=2):
             _write_data_row(ws_ms, row_num, MILESTONE_COLS, ms)
     ws_ms.freeze_panes = "A2"
+
+    # ── Tab 6: Hypotheses ─────────────────────────────────────────────────────
+    ws_hyp = wb.create_sheet("Hypotheses")
+    _write_header_row(ws_hyp, HYPOTHESIS_COLS)
+
+    if hypotheses:
+        # Build initiative name lookup
+        init_names = {i.id: i.name for i in initiatives}
+
+        # Sort: project-level (initiative_id is None) first, then initiative-level by name
+        project_rows = [h for h in hypotheses if not h.get("initiative_id")]
+        initiative_rows = sorted(
+            [h for h in hypotheses if h.get("initiative_id")],
+            key=lambda h: init_names.get(h["initiative_id"], h["initiative_id"]),
+        )
+        sorted_hyp = project_rows + initiative_rows
+
+        for row_num, h in enumerate(sorted_hyp, start=2):
+            iid = h.get("initiative_id")
+            record = {
+                "id": h.get("id", ""),
+                "level": "Project" if not iid else "Initiative",
+                "initiative": init_names.get(iid, "") if iid else "",
+                "hypothesis": h.get("hypothesis", ""),
+                "owner": h.get("owner", ""),
+                "validation_path": h.get("validation_path", ""),
+                "status": h.get("status", ""),
+                "created": h.get("created", ""),
+                "source": h.get("source", ""),
+            }
+            _write_data_row(ws_hyp, row_num, HYPOTHESIS_COLS, record)
+
+    ws_hyp.column_dimensions["A"].width = 22
+    ws_hyp.column_dimensions["B"].width = 12
+    ws_hyp.column_dimensions["C"].width = 32
+    ws_hyp.column_dimensions["D"].width = 60
+    ws_hyp.column_dimensions["E"].width = 20
+    ws_hyp.column_dimensions["F"].width = 40
+    ws_hyp.column_dimensions["G"].width = 14
+    ws_hyp.column_dimensions["H"].width = 12
+    ws_hyp.column_dimensions["I"].width = 30
+    ws_hyp.freeze_panes = "A2"
 
     wb.save(path)
