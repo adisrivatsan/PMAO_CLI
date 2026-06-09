@@ -142,3 +142,55 @@ def run_ingest(
 
     apply_updates(vault_path, extraction, transcript_name=source_path.name)
     print(f"\nDone. workbook.xlsx updated.")
+
+
+def run_status(vault_path: Path, config_override: str = None) -> None:
+    from pmao.llm import call_text
+
+    initiatives = load_initiatives(vault_path)
+    skill = _load_skill("status")
+    init_list = "\n".join(
+        f"  {i.id}: {i.name} | {i.status} | priority={i.priority or 'none'} | "
+        f"current_state={i.current_state or 'none'} | "
+        f"coordination_next_steps={i.coordination_next_steps or 'none'} | "
+        f"outstanding_questions={i.outstanding_questions or 'none'} | "
+        f"outstanding_meetings={i.outstanding_meetings or 'none'} | "
+        f"last_touch={i.last_touch_timestamp or 'none'}"
+        for i in initiatives
+    )
+    prompt = skill.replace("{initiatives}", init_list)
+    print(call_text(prompt, config_override=config_override))
+
+
+def run_update(vault_path: Path, config_override: str = None) -> None:
+    from pmao.llm import call_text
+
+    initiatives = load_initiatives(vault_path)
+    skill = _load_skill("update")
+    init_list = "\n".join(f"  {i.id}: {i.name} ({i.status})" for i in initiatives)
+    prompt = skill.replace("{initiatives}", init_list)
+    print(call_text(prompt, config_override=config_override))
+
+
+def run_summarize(vault_path: Path, config_override: str = None) -> None:
+    import json as _json
+    from pmao.llm import call_text
+
+    initiatives = load_initiatives(vault_path)
+    actions_path = vault_path / "actions.json"
+    questions_path = vault_path / "questions.json"
+    actions = _json.loads(actions_path.read_text()) if actions_path.exists() else []
+    questions = _json.loads(questions_path.read_text()) if questions_path.exists() else []
+
+    skill = _load_skill("summarize")
+    state = _json.dumps(
+        {
+            "initiatives": [i.to_dict() for i in initiatives],
+            "actions": actions,
+            "questions": questions,
+        },
+        indent=2,
+        default=str,
+    )
+    prompt = skill.replace("{project_state}", state)
+    print(call_text(prompt, config_override=config_override))

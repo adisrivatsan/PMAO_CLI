@@ -48,3 +48,25 @@ def save_initiatives(vault_path: Path, initiatives: List[Initiative]) -> None:
         shutil.copy2(target, vault_path / "initiatives.json.bak")
     data = [i.to_dict() for i in initiatives]
     target.write_text(json.dumps(data, indent=2, default=str))
+
+
+def seed_from_csv(vault_path: Path, csv_path: Path) -> int:
+    import csv
+    from datetime import date
+
+    initiatives = []
+    with open(csv_path, encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for i, row in enumerate(reader):
+            initiatives.append(Initiative(
+                id=row.get("id") or f"init-{i + 1:03d}",
+                name=row["name"],
+                status="not_started",
+                created=date.today(),
+                last_touched=date.today(),
+                coordination_owner=row.get("coordination_owner") or None,
+                responsible_owner=row.get("responsible_owner") or None,
+                priority=row.get("priority") or None,
+            ))
+    save_initiatives(vault_path, initiatives)
+    return len(initiatives)
