@@ -23,6 +23,7 @@ def test_init_vault_creates_expected_files():
             assert (vault / fname).exists(), f"Missing {fname}"
         assert (vault / "workbook.xlsx").exists()
         assert (vault / "transcripts").is_dir()
+        assert (vault / "hypotheses.json").exists()
 
 
 def test_init_vault_writes_config_with_project_name():
@@ -70,3 +71,12 @@ def test_no_lrp_in_config():
         config_text = (vault / "project-config.yaml").read_text()
         assert "lrp" not in config_text.lower()
         assert "vault_type" not in config_text
+
+
+def test_init_vault_creates_hypotheses_json():
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp)
+        init_vault(vault)
+        hyp_path = vault / "hypotheses.json"
+        assert hyp_path.exists()
+        assert json.loads(hyp_path.read_text()) == []

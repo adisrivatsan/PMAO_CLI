@@ -12,6 +12,7 @@ VAULT_FILES = [
     "actions.json",
     "questions.json",
     "decisions.json",
+    "hypotheses.json",
     "workbook.xlsx",
 ]
 
@@ -32,6 +33,7 @@ def init_vault(vault_path: Path, project_name: str = "My Project", owner: str = 
     (vault_path / "actions.json").write_text("[]")
     (vault_path / "questions.json").write_text("[]")
     (vault_path / "decisions.json").write_text("[]")
+    (vault_path / "hypotheses.json").write_text("[]")
 
     from pmao.excel import create_workbook
     create_workbook(vault_path / "workbook.xlsx", [])
