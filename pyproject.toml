@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "pmao-cli"
 version = "0.1.0"
 description = "Project management assistant orchestrator — CLI-first, LLM-powered initiative tracker"
-requires-python = ">=3.11"
+requires-python = ">=3.9"
 dependencies = [
     "pyyaml",
     "openpyxl>=3.1",
