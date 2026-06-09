@@ -25,10 +25,10 @@ You are a project management assistant. Render a clean status dashboard for the 
    ```
 
 3. After the sorted list, show a brief section for each category:
-   - **Needs attention**: initiatives with outstanding_questions or outstanding_meetings
-   - **Action items due**: initiatives with coordination_next_steps containing an owner and due date
-   - **Last touched**: show last_touch_timestamp for each initiative
+   - Needs attention: list initiatives that have outstanding_questions or outstanding_meetings set
+   - Coordination next steps: list initiatives that have coordination_next_steps set, showing the next steps text
+   - Last touched: show last_touch_timestamp for each initiative
 
 ## Format
 
-Keep the output clean and scannable. Use plain text — no markdown headers, no tables.
+Keep the output clean and scannable. Use section labels (e.g., "NEEDS ATTENTION", "NEXT STEPS", "LAST TOUCHED") in plain uppercase. No markdown tables.
