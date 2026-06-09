@@ -3,6 +3,8 @@ import shutil
 import subprocess
 from typing import Any
 
+_KNOWN_BACKENDS = {"claude", "codex"}
+
 
 class LLMError(Exception):
     pass
@@ -21,6 +23,8 @@ def detect_backend(config_override: str = None) -> str:
 
 
 def _run(backend: str, prompt: str, timeout: int = 120) -> str:
+    if backend not in _KNOWN_BACKENDS:
+        raise LLMError(f"Unknown backend '{backend}'. Choose from: {_KNOWN_BACKENDS}")
     if backend == "claude":
         cmd = ["claude", "-p", prompt]
     else:
@@ -50,14 +54,19 @@ def call_structured(
     """Call the LLM and return parsed JSON (for ingest, update)."""
     backend = detect_backend(config_override)
     for attempt in range(2):
-        current_prompt = prompt
-        if attempt == 1:
-            current_prompt += "\n\nIMPORTANT: Respond ONLY with valid JSON. No preamble, no explanation, no markdown."
+        if attempt == 0:
+            current_prompt = prompt
+        else:
+            current_prompt = prompt + "\n\nIMPORTANT: Respond ONLY with valid JSON. No preamble, no explanation, no markdown."
         raw = _run(backend, current_prompt, timeout)
         text = raw
         if text.startswith("```"):
-            lines = text.splitlines()
-            text = "\n".join(l for l in lines if not l.startswith("```")).strip()
+            text_lines = text.splitlines()
+            if text_lines[0].startswith("```"):
+                text_lines = text_lines[1:]
+            if text_lines and text_lines[-1].startswith("```"):
+                text_lines = text_lines[:-1]
+            text = "\n".join(text_lines).strip()
         try:
             return json.loads(text)
         except json.JSONDecodeError:
