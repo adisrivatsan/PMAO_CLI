@@ -12,6 +12,7 @@ VAULT_FILES = [
     "actions.json",
     "questions.json",
     "decisions.json",
+    "workbook.xlsx",
 ]
 
 
