@@ -206,6 +206,13 @@ def run_status(vault_path: Path, config_override: str = None) -> None:
     prompt = skill.replace("{initiatives}", init_list)
     print(call_text(prompt, config_override=config_override))
 
+    hyp_path = vault_path / "hypotheses.json"
+    hypotheses = json.loads(hyp_path.read_text()) if hyp_path.exists() else []
+    open_hyp = [h for h in hypotheses if h.get("status") in ("open", "exploring")]
+    initiative_level = [h for h in open_hyp if h.get("initiative_id")]
+    project_level = [h for h in open_hyp if not h.get("initiative_id")]
+    print(f"\nHypotheses: {len(open_hyp)} open ({len(initiative_level)} initiative-level, {len(project_level)} project-level)")
+
 
 def _build_update_prompt(skill: str, initiatives: List[Initiative], user_note: str) -> str:
     init_list = "\n".join(
@@ -279,8 +286,13 @@ def run_summarize(vault_path: Path, config_override: str = None) -> None:
     initiatives = load_initiatives(vault_path)
     actions_path = vault_path / "actions.json"
     questions_path = vault_path / "questions.json"
+    decisions_path = vault_path / "decisions.json"
+    hyp_path = vault_path / "hypotheses.json"
+
     actions = _json.loads(actions_path.read_text()) if actions_path.exists() else []
     questions = _json.loads(questions_path.read_text()) if questions_path.exists() else []
+    decisions = _json.loads(decisions_path.read_text()) if decisions_path.exists() else []
+    hypotheses = _json.loads(hyp_path.read_text()) if hyp_path.exists() else []
 
     skill = _load_skill("summarize")
     state = _json.dumps(
@@ -288,6 +300,8 @@ def run_summarize(vault_path: Path, config_override: str = None) -> None:
             "initiatives": [i.to_dict() for i in initiatives],
             "actions": actions,
             "questions": questions,
+            "decisions": decisions,
+            "hypotheses": hypotheses,
         },
         indent=2,
         default=str,

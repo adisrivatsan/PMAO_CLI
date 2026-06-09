@@ -296,3 +296,27 @@ def test_run_update_aborts_on_empty_note():
 
         initiatives = load_initiatives(vault)
         assert initiatives[0].current_state is None  # unchanged
+
+
+def test_run_status_prints_hypothesis_count(capsys):
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp)
+        init_vault(vault)
+        save_initiatives(vault, [_make_initiative()])
+
+        hyps = [
+            {"initiative_id": "init-001", "hypothesis": "A", "status": "open", "owner": "", "validation_path": "", "created": "2026-06-09", "source": "x.vtt", "id": "hyp-1", "source_type": "[transcript]"},
+            {"initiative_id": None, "hypothesis": "B", "status": "open", "owner": "", "validation_path": "", "created": "2026-06-09", "source": "x.vtt", "id": "hyp-2", "source_type": "[transcript]"},
+            {"initiative_id": "init-001", "hypothesis": "C", "status": "parked", "owner": "", "validation_path": "", "created": "2026-06-09", "source": "x.vtt", "id": "hyp-3", "source_type": "[transcript]"},
+        ]
+        (vault / "hypotheses.json").write_text(json.dumps(hyps))
+
+        with patch("pmao.llm.call_text", return_value="STATUS OUTPUT"), \
+             patch("pmao.ingest._load_skill", return_value="{initiatives}"):
+            from pmao.ingest import run_status
+            run_status(vault)
+
+        captured = capsys.readouterr()
+        assert "Hypotheses: 2 open" in captured.out
+        assert "1 initiative-level" in captured.out
+        assert "1 project-level" in captured.out
