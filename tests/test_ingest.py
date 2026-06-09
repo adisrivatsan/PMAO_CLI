@@ -158,3 +158,90 @@ def test_apply_updates_adds_open_questions():
         questions = json.loads((vault / "questions.json").read_text())
         assert len(questions) == 1
         assert questions[0]["question"] == "What is the budget?"
+
+
+def test_apply_updates_writes_decisions():
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp)
+        init_vault(vault)
+        save_initiatives(vault, [_make_initiative()])
+
+        extraction = {
+            "initiatives_updated": [],
+            "action_items": [],
+            "open_questions": [],
+            "decisions": [{
+                "initiative_id": "init-001",
+                "decision": "Budget approved at $500K",
+                "rationale": "Board approved in Q2 review",
+                "owner": "Jane Smith",
+                "source_type": "[transcript]",
+            }],
+            "hypotheses": [],
+        }
+        apply_updates(vault, extraction, "meeting.vtt")
+
+        decisions = json.loads((vault / "decisions.json").read_text())
+        assert len(decisions) == 1
+        assert decisions[0]["decision"] == "Budget approved at $500K"
+        assert decisions[0]["rationale"] == "Board approved in Q2 review"
+        assert decisions[0]["owner"] == "Jane Smith"
+        assert decisions[0]["status"] == "recorded"
+        assert decisions[0]["source"] == "meeting.vtt"
+        assert decisions[0]["id"].startswith("dec-")
+
+
+def test_apply_updates_writes_hypotheses():
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp)
+        init_vault(vault)
+        save_initiatives(vault, [_make_initiative()])
+
+        extraction = {
+            "initiatives_updated": [],
+            "action_items": [],
+            "open_questions": [],
+            "decisions": [],
+            "hypotheses": [{
+                "initiative_id": "init-001",
+                "hypothesis": "Unbundling onboarding fee will increase conversion by 15%",
+                "owner": "Alex Chen",
+                "validation_path": "Run A/B on next cohort",
+                "source_type": "[transcript]",
+            }],
+        }
+        apply_updates(vault, extraction, "strategy-call.vtt")
+
+        hypotheses = json.loads((vault / "hypotheses.json").read_text())
+        assert len(hypotheses) == 1
+        assert hypotheses[0]["hypothesis"] == "Unbundling onboarding fee will increase conversion by 15%"
+        assert hypotheses[0]["owner"] == "Alex Chen"
+        assert hypotheses[0]["status"] == "open"
+        assert hypotheses[0]["initiative_id"] == "init-001"
+        assert hypotheses[0]["id"].startswith("hyp-")
+
+
+def test_apply_updates_hypothesis_with_null_initiative_id():
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp)
+        init_vault(vault)
+        save_initiatives(vault, [_make_initiative()])
+
+        extraction = {
+            "initiatives_updated": [],
+            "action_items": [],
+            "open_questions": [],
+            "decisions": [],
+            "hypotheses": [{
+                "initiative_id": None,
+                "hypothesis": "Market timing matters more than product quality in this segment",
+                "owner": "",
+                "validation_path": "",
+                "source_type": "[transcript]",
+            }],
+        }
+        apply_updates(vault, extraction, "all-hands.vtt")
+
+        hypotheses = json.loads((vault / "hypotheses.json").read_text())
+        assert len(hypotheses) == 1
+        assert hypotheses[0]["initiative_id"] is None

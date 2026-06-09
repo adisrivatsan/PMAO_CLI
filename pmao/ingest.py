@@ -94,8 +94,44 @@ def apply_updates(vault_path: Path, extraction: dict, transcript_name: str) -> N
         })
     questions_path.write_text(json.dumps(questions, indent=2))
 
+    decisions_path = vault_path / "decisions.json"
+    decisions = json.loads(decisions_path.read_text()) if decisions_path.exists() else []
+    for dec in extraction.get("decisions", []):
+        if not dec.get("decision"):
+            continue
+        decisions.append({
+            "id": f"dec-{today.isoformat()}-{len(decisions):04d}",
+            "initiative_id": dec.get("initiative_id", ""),
+            "decision": dec["decision"],
+            "rationale": dec.get("rationale", ""),
+            "owner": dec.get("owner", ""),
+            "status": "recorded",
+            "created": today.isoformat(),
+            "source": transcript_name,
+            "source_type": dec.get("source_type", ""),
+        })
+    decisions_path.write_text(json.dumps(decisions, indent=2))
+
+    hyp_path = vault_path / "hypotheses.json"
+    all_hyp = json.loads(hyp_path.read_text()) if hyp_path.exists() else []
+    for hyp in extraction.get("hypotheses", []):
+        if not hyp.get("hypothesis"):
+            continue
+        all_hyp.append({
+            "id": f"hyp-{today.isoformat()}-{len(all_hyp):04d}",
+            "initiative_id": hyp.get("initiative_id"),
+            "hypothesis": hyp["hypothesis"],
+            "owner": hyp.get("owner", ""),
+            "validation_path": hyp.get("validation_path", ""),
+            "status": "open",
+            "source": transcript_name,
+            "source_type": hyp.get("source_type", ""),
+            "created": today.isoformat(),
+        })
+    hyp_path.write_text(json.dumps(all_hyp, indent=2))
+
     save_initiatives(vault_path, initiatives)
-    create_workbook(vault_path / "workbook.xlsx", initiatives)
+    create_workbook(vault_path / "workbook.xlsx", initiatives, hypotheses=all_hyp)
 
 
 def run_ingest(
@@ -119,10 +155,14 @@ def run_ingest(
     extraction.setdefault("initiatives_updated", [])
     extraction.setdefault("action_items", [])
     extraction.setdefault("open_questions", [])
+    extraction.setdefault("decisions", [])
+    extraction.setdefault("hypotheses", [])
 
     init_updates = extraction["initiatives_updated"]
     action_items = extraction["action_items"]
     questions = extraction["open_questions"]
+    decisions = extraction["decisions"]
+    hypotheses = extraction["hypotheses"]
 
     print(f"\n--- Extraction results ---")
     print(f"Initiatives updated: {len(init_updates)}")
@@ -132,8 +172,10 @@ def run_ingest(
         print(f"  [{iid}] {name}")
     print(f"Action items: {len(action_items)}")
     print(f"Open questions: {len(questions)}")
+    print(f"Decisions: {len(decisions)}")
+    print(f"Hypotheses: {len(hypotheses)}")
 
-    if not init_updates and not action_items and not questions:
+    if not init_updates and not action_items and not questions and not decisions and not hypotheses:
         print("\nNothing extracted — no changes made.")
         return
 
