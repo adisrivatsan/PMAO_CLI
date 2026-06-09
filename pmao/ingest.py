@@ -59,8 +59,6 @@ def apply_updates(vault_path: Path, extraction: dict, transcript_name: str) -> N
             init.status = "in_progress"
         init.last_touched = today
 
-    save_initiatives(vault_path, initiatives)
-
     actions_path = vault_path / "actions.json"
     actions = json.loads(actions_path.read_text()) if actions_path.exists() else []
     for item in extraction.get("action_items", []):
@@ -93,6 +91,7 @@ def apply_updates(vault_path: Path, extraction: dict, transcript_name: str) -> N
         })
     questions_path.write_text(json.dumps(questions, indent=2))
 
+    save_initiatives(vault_path, initiatives)
     create_workbook(vault_path / "workbook.xlsx", initiatives)
 
 

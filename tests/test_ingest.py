@@ -2,7 +2,6 @@ import json
 import tempfile
 from datetime import date
 from pathlib import Path
-from unittest.mock import patch
 
 from pmao.models import Initiative
 from pmao.ingest import apply_updates, _append, _build_ingest_prompt
