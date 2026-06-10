@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import List
 
 from pmao.models import Initiative
-from pmao.vault import load_initiatives, load_list, refresh_workbook
+from pmao.vault import load_initiatives, load_list, refresh_workbook, STAGED_CATEGORIES
 from pmao.roster import load_roster, render_roster
 
 PROMPT_VERSION = "pmao-deep-v1.0"
@@ -13,15 +13,7 @@ CALIBRATION_LINE_CAP = 200
 RECON_DECISION_CAP = 20
 
 # category -> the key that summarizes one item of that category
-ITEM_CATEGORIES = {
-    "facts": "claim",
-    "hypotheses": "theory",
-    "decisions": "decision",
-    "open_questions": "question",
-    "principal_signals": "signal",
-    "meetings_to_schedule": "purpose",
-    "action_items": "description",
-}
+ITEM_CATEGORIES = STAGED_CATEGORIES
 
 
 def _build_deep_prompt(

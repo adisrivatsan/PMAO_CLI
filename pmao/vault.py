@@ -65,7 +65,7 @@ def load_list(vault_path: Path, filename: str) -> list:
     return json.loads(path.read_text()) if path.exists() else []
 
 
-_STAGED_CATEGORIES = {
+STAGED_CATEGORIES = {
     "facts": "claim",
     "hypotheses": "theory",
     "decisions": "decision",
@@ -91,7 +91,7 @@ def staging_summaries(vault_path: Path) -> list:
         if staged.get("status") != "pending_review":
             continue
         extraction = staged.get("extraction", {})
-        for category, summary_key in _STAGED_CATEGORIES.items():
+        for category, summary_key in STAGED_CATEGORIES.items():
             for item in extraction.get(category, []):
                 rows.append({
                     "staging_file": f.name,
