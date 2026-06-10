@@ -39,13 +39,11 @@ def cmd_summarize(args) -> None:
 
 
 def cmd_export(args) -> None:
-    from pmao.vault import load_initiatives
-    from pmao.excel import create_workbook
+    from pmao.vault import load_initiatives, refresh_workbook
     vault = Path(args.vault)
     initiatives = load_initiatives(vault)
-    out_path = vault / "workbook.xlsx"
-    create_workbook(out_path, initiatives)
-    print(f"Exported {len(initiatives)} initiatives to {out_path.resolve()}")
+    refresh_workbook(vault)
+    print(f"Exported {len(initiatives)} initiatives to {(vault / 'workbook.xlsx').resolve()}")
 
 
 def cmd_config(args) -> None:

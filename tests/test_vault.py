@@ -112,3 +112,57 @@ def test_load_list_reads_json_array():
         vault = Path(tmp)
         (vault / "facts.json").write_text(json.dumps([{"id": "fact-1"}]))
         assert load_list(vault, "facts.json") == [{"id": "fact-1"}]
+
+
+def test_staging_summaries_flattens_pending_files():
+    import json
+    import tempfile
+    from pathlib import Path
+    from pmao.vault import init_vault, staging_summaries
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp)
+        init_vault(vault)
+        staged = {
+            "status": "pending_review",
+            "ingested": "2026-06-10",
+            "source": "sync.vtt",
+            "prompt_version": "pmao-deep-v1.0",
+            "extraction": {
+                "facts": [{"initiative_id": "init-001", "claim": "cost up 9%"}],
+                "action_items": [{"initiative_id": None, "description": "build model"}],
+                "review_flags": ["possible board-memo commitment, owner unclear"],
+            },
+        }
+        (vault / "staging" / "2026-06-10-sync.json").write_text(json.dumps(staged))
+        # Reviewed files are excluded
+        done = dict(staged, status="reviewed")
+        (vault / "staging" / "2026-06-09-old.json").write_text(json.dumps(done))
+
+        rows = staging_summaries(vault)
+        assert len(rows) == 3  # fact + action + review_flag
+        by_cat = {r["category"]: r for r in rows}
+        assert by_cat["facts"]["summary"] == "cost up 9%"
+        assert by_cat["facts"]["staging_file"] == "2026-06-10-sync.json"
+        assert by_cat["action_items"]["initiative_id"] == ""
+        assert by_cat["review_flag"]["summary"].startswith("possible board-memo")
+
+
+def test_refresh_workbook_renders_canonical_and_staged():
+    import json
+    import tempfile
+    from pathlib import Path
+    from openpyxl import load_workbook
+    from pmao.vault import init_vault, refresh_workbook
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp)
+        init_vault(vault)
+        (vault / "facts.json").write_text(json.dumps(
+            [{"id": "fact-0001", "initiative_id": "general", "claim": "a fact"}]))
+        (vault / "staging" / "x.json").write_text(json.dumps({
+            "status": "pending_review",
+            "extraction": {"facts": [{"initiative_id": "general", "claim": "staged fact"}]},
+        }))
+        refresh_workbook(vault)
+        wb = load_workbook(vault / "workbook.xlsx")
+        assert wb["Facts"].cell(row=2, column=3).value == "a fact"
+        assert wb["Review Queue"].cell(row=2, column=4).value == "staged fact"

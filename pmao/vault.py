@@ -65,6 +65,64 @@ def load_list(vault_path: Path, filename: str) -> list:
     return json.loads(path.read_text()) if path.exists() else []
 
 
+_STAGED_CATEGORIES = {
+    "facts": "claim",
+    "hypotheses": "theory",
+    "decisions": "decision",
+    "open_questions": "question",
+    "principal_signals": "signal",
+    "meetings_to_schedule": "purpose",
+    "action_items": "description",
+}
+
+
+def staging_summaries(vault_path: Path) -> list:
+    """One Review Queue row per item in every pending_review staging file.
+
+    Each review_flag also becomes its own row (category 'review_flag') so the
+    workbook surfaces what the extractor wants a human to look at.
+    """
+    rows = []
+    staging_dir = vault_path / "staging"
+    if not staging_dir.exists():
+        return rows
+    for f in sorted(staging_dir.glob("*.json")):
+        staged = json.loads(f.read_text())
+        if staged.get("status") != "pending_review":
+            continue
+        extraction = staged.get("extraction", {})
+        for category, summary_key in _STAGED_CATEGORIES.items():
+            for item in extraction.get(category, []):
+                rows.append({
+                    "staging_file": f.name,
+                    "category": category,
+                    "initiative_id": item.get("initiative_id") or "",
+                    "summary": item.get(summary_key, ""),
+                })
+        for flag in extraction.get("review_flags", []):
+            rows.append({
+                "staging_file": f.name,
+                "category": "review_flag",
+                "initiative_id": "",
+                "summary": flag,
+            })
+    return rows
+
+
+def refresh_workbook(vault_path: Path) -> None:
+    """Regenerate workbook.xlsx from everything on disk (canonical + staging)."""
+    from pmao.excel import create_workbook
+    create_workbook(
+        vault_path / "workbook.xlsx",
+        load_initiatives(vault_path),
+        hypotheses=load_list(vault_path, "hypotheses.json"),
+        facts=load_list(vault_path, "facts.json"),
+        signals=load_list(vault_path, "signals.json"),
+        meetings=load_list(vault_path, "meetings.json"),
+        staged=staging_summaries(vault_path),
+    )
+
+
 def seed_from_csv(vault_path: Path, csv_path: Path) -> int:
     import csv
     from datetime import date

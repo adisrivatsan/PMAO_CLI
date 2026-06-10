@@ -4,8 +4,7 @@ from pathlib import Path
 from typing import List
 
 from pmao.models import Initiative
-from pmao.vault import load_initiatives, save_initiatives
-from pmao.excel import create_workbook
+from pmao.vault import load_initiatives, save_initiatives, refresh_workbook
 
 
 def _load_skill(skill_name: str) -> str:
@@ -131,7 +130,7 @@ def apply_updates(vault_path: Path, extraction: dict, transcript_name: str) -> N
     hyp_path.write_text(json.dumps(all_hyp, indent=2))
 
     save_initiatives(vault_path, initiatives)
-    create_workbook(vault_path / "workbook.xlsx", initiatives, hypotheses=all_hyp)
+    refresh_workbook(vault_path)
 
 
 def run_ingest(
