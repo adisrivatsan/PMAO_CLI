@@ -37,7 +37,8 @@ pmao export my-project/
 | Command | Description |
 |---------|-------------|
 | `pmao init <vault> [--roster FILE]` | Initialize a new vault; optionally seed from CSV |
-| `pmao ingest <vault> --source FILE [--yes]` | Extract updates from a .vtt, .txt, or .md source |
+| `pmao ingest <vault> --source FILE [--yes]` | Quick extract: updates applied directly after confirmation |
+| `pmao ingest <vault> --source FILE --deep` | Deep extract: facts, signals, meetings, typed actions — staged to `staging/` for review (never applies directly) |
 | `pmao update <vault>` | Interactively update an initiative field via LLM |
 | `pmao status <vault>` | Print a sorted status dashboard |
 | `pmao summarize <vault>` | Produce an executive summary |
@@ -55,7 +56,14 @@ my-project/
   actions.json          # open action items
   questions.json        # open questions
   decisions.json        # recorded decisions
-  workbook.xlsx         # derived Excel artifact (5 tabs)
+  hypotheses.json       # open hypotheses
+  facts.json            # promoted facts (deep ingest + review gate)
+  signals.json          # promoted principal signals
+  meetings.json         # promoted meetings to schedule
+  roster.yaml           # optional people roster (owners, aliases, decision-makers)
+  staging/              # deep-ingest extractions awaiting review
+  learning/             # calibration lessons fed back into deep ingest (written by review gate)
+  workbook.xlsx         # derived Excel artifact (10 tabs)
   transcripts/          # drop .vtt or .txt files here
 ```
 
@@ -88,6 +96,7 @@ All LLM reasoning is in `skills/`. Edit these to change how the LLM interprets y
 | File | Used by |
 |------|---------|
 | `skills/ingest.md` | `pmao ingest` — structured extraction from source material |
+| `skills/ingest-deep.md` | `pmao ingest --deep` — staged rich extraction |
 | `skills/update.md` | `pmao update` — interactive field update flow |
 | `skills/status.md` | `pmao status` — status dashboard rendering |
 | `skills/summarize.md` | `pmao summarize` — executive summary generation |
@@ -103,6 +112,30 @@ init-002,Market Expansion,,,medium
 ```
 
 See `templates/initiative-template.csv` for the full template.
+
+## Deep ingest and the roster
+
+`pmao ingest --deep` runs a richer extraction (facts, hypotheses, decisions, open questions, principal signals, meetings to schedule, typed action items, alias/review flags) and writes the result to `staging/` — canonical files are only changed when a human promotes items via the review gate (`pmao review`, upcoming).
+
+Add an optional `roster.yaml` to the vault to enable owner/alias resolution and authority calls:
+
+```yaml
+people:
+  - name: Sarah Klein
+    aliases: [Sarah, Sarah K]
+    role: VP Finance
+    domains: [finance, pricing]
+    decision_maker: true
+    levers: [budget, pricing]
+  - name: Dev Patel
+    aliases: [Dev]
+    role: Analyst
+    domains: [cost model]
+```
+
+Without a roster, deep ingest still runs but marks authority `unknown`. A malformed roster is a hard error — fix it before ingesting.
+
+The skill lives at `skills/ingest-deep.md`; edit it to change extraction behavior, no Python required.
 
 ## LLM backend
 
