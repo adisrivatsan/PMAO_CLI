@@ -19,7 +19,7 @@ def _make_initiative(id_="init-001", **kwargs):
     return Initiative(id=id_, **defaults)
 
 
-def test_workbook_has_six_tabs():
+def test_workbook_has_all_tabs_in_order():
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "test.xlsx"
         create_workbook(path, [])

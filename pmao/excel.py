@@ -213,14 +213,13 @@ def create_workbook(
             _write_data_row(ws_ms, row_num, MILESTONE_COLS, ms)
     ws_ms.freeze_panes = "A2"
 
+    init_names = {i.id: i.name for i in initiatives}
+
     # ── Tab 6: Hypotheses ─────────────────────────────────────────────────────
     ws_hyp = wb.create_sheet("Hypotheses")
     _write_header_row(ws_hyp, HYPOTHESIS_COLS)
 
     if hypotheses:
-        # Build initiative name lookup
-        init_names = {i.id: i.name for i in initiatives}
-
         # Sort: project-level (initiative_id is None) first, then initiative-level by name
         project_rows = [h for h in hypotheses if not h.get("initiative_id")]
         initiative_rows = sorted(
@@ -254,8 +253,6 @@ def create_workbook(
     ws_hyp.column_dimensions["H"].width = 12
     ws_hyp.column_dimensions["I"].width = 30
     ws_hyp.freeze_panes = "A2"
-
-    init_names = {i.id: i.name for i in initiatives}
 
     # ── Tab 7: Facts ──────────────────────────────────────────────────────────
     ws_f = wb.create_sheet("Facts")
