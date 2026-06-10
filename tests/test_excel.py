@@ -31,6 +31,10 @@ def test_workbook_has_six_tabs():
             "Meeting Requests",
             "Milestones",
             "Hypotheses",
+            "Facts",
+            "Signals",
+            "Meetings",
+            "Review Queue",
         ]
 
 
@@ -225,3 +229,79 @@ def test_workbook_creates_with_empty_initiatives():
         ws = wb["Initiatives"]
         # header row only
         assert ws.max_row == 1
+
+
+def test_workbook_has_deep_extraction_tabs_when_empty():
+    import tempfile
+    from pathlib import Path
+    from openpyxl import load_workbook
+    from pmao.excel import create_workbook
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "wb.xlsx"
+        create_workbook(path, [])
+        wb = load_workbook(path)
+        for tab in ("Facts", "Signals", "Meetings", "Review Queue"):
+            assert tab in wb.sheetnames, f"missing tab {tab}"
+        # Header row present even when empty
+        assert wb["Facts"].cell(row=1, column=2).value == "initiative"
+        assert wb["Review Queue"].cell(row=1, column=1).value == "staging_file"
+
+
+def test_workbook_populates_facts_signals_and_review_queue():
+    import tempfile
+    from datetime import date
+    from pathlib import Path
+    from openpyxl import load_workbook
+    from pmao.excel import create_workbook
+    from pmao.models import Initiative
+
+    init = Initiative(id="init-001", name="Pricing", status="in_progress",
+                      created=date(2026, 6, 1), last_touched=date(2026, 6, 10))
+    facts = [{"id": "fact-0001", "initiative_id": "init-001",
+              "claim": "Q2 cost-to-serve up 9%", "stated_by": "Sarah Klein",
+              "authority": "owner", "confidence": "high", "inferred": False,
+              "source_span": "line 12", "source": "sync.vtt", "created": "2026-06-10"}]
+    signals = [{"id": "sig-0001", "initiative_id": "init-001",
+                "principal": "Sarah Klein", "lever": "pricing",
+                "signal": "wants floor pricing", "implication": "raise floor",
+                "source": "sync.vtt", "created": "2026-06-10"}]
+    staged = [{"staging_file": "2026-06-10-sync.json", "category": "action_items",
+               "initiative_id": "init-001", "summary": "build the cost model"}]
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "wb.xlsx"
+        create_workbook(path, [init], facts=facts, signals=signals, staged=staged)
+        wb = load_workbook(path)
+        assert wb["Facts"].cell(row=2, column=3).value == "Q2 cost-to-serve up 9%"
+        assert wb["Facts"].cell(row=2, column=2).value == "Pricing"  # id resolved to name
+        assert wb["Signals"].cell(row=2, column=5).value == "wants floor pricing"
+        assert wb["Review Queue"].cell(row=2, column=2).value == "action_items"
+        assert wb["Review Queue"].cell(row=2, column=4).value == "build the cost model"
+
+
+def test_meetings_tab_combines_structured_and_initiative_field():
+    import tempfile
+    from datetime import date
+    from pathlib import Path
+    from openpyxl import load_workbook
+    from pmao.excel import create_workbook
+    from pmao.models import Initiative
+
+    init = Initiative(id="init-001", name="Pricing", status="in_progress",
+                      created=date(2026, 6, 1), last_touched=date(2026, 6, 10))
+    init.outstanding_meetings = "- Kickoff with data team"
+    meetings = [{"id": "mtg-0001", "initiative_id": "init-001",
+                 "purpose": "align on cost model", "convener": "Sarah Klein",
+                 "attendees": ["Finance", "CS"], "functions": ["finance"],
+                 "target_timing": "next week", "status": "open",
+                 "source": "sync.vtt", "created": "2026-06-10"}]
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "wb.xlsx"
+        create_workbook(path, [init], meetings=meetings)
+        wb = load_workbook(path)
+        ws = wb["Meetings"]
+        rows = [[ws.cell(row=r, column=c).value for c in range(1, 11)] for r in (2, 3)]
+        purposes = {row[2] for row in rows}
+        sources = {row[8] for row in rows}
+        assert "align on cost model" in purposes
+        assert "- Kickoff with data team" in purposes
+        assert sources == {"meetings.json", "initiative-field"}

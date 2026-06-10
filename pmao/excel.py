@@ -47,6 +47,23 @@ HYPOTHESIS_COLS = [
     "validation_path", "status", "created", "source",
 ]
 
+FACT_COLS = [
+    "id", "initiative", "claim", "stated_by", "authority",
+    "confidence", "inferred", "source_span", "source", "created",
+]
+
+SIGNAL_COLS = [
+    "id", "initiative", "principal", "lever", "signal",
+    "implication", "source", "created",
+]
+
+MEETING_COLS = [
+    "id", "initiative", "purpose", "convener", "attendees",
+    "functions", "target_timing", "status", "row_source", "created",
+]
+
+REVIEW_QUEUE_COLS = ["staging_file", "category", "initiative_id", "summary"]
+
 # ── Styles ─────────────────────────────────────────────────────────────────────
 
 _HEADER_FILL = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
@@ -96,6 +113,10 @@ def create_workbook(
     meeting_requests: Optional[list] = None,
     milestones: Optional[list] = None,
     hypotheses: Optional[list] = None,
+    facts: Optional[list] = None,
+    signals: Optional[list] = None,
+    meetings: Optional[list] = None,
+    staged: Optional[list] = None,
 ) -> None:
     wb = Workbook()
 
@@ -233,5 +254,73 @@ def create_workbook(
     ws_hyp.column_dimensions["H"].width = 12
     ws_hyp.column_dimensions["I"].width = 30
     ws_hyp.freeze_panes = "A2"
+
+    init_names = {i.id: i.name for i in initiatives}
+
+    # ── Tab 7: Facts ──────────────────────────────────────────────────────────
+    ws_f = wb.create_sheet("Facts")
+    _write_header_row(ws_f, FACT_COLS)
+    for row_num, f in enumerate(facts or [], start=2):
+        iid = f.get("initiative_id")
+        record = dict(f)
+        record["initiative"] = init_names.get(iid, iid or "")
+        record["inferred"] = "yes" if f.get("inferred") else "no"
+        _write_data_row(ws_f, row_num, FACT_COLS, record)
+    ws_f.column_dimensions["B"].width = 28
+    ws_f.column_dimensions["C"].width = 60
+    ws_f.column_dimensions["H"].width = 40
+    ws_f.freeze_panes = "A2"
+
+    # ── Tab 8: Signals ────────────────────────────────────────────────────────
+    ws_s = wb.create_sheet("Signals")
+    _write_header_row(ws_s, SIGNAL_COLS)
+    for row_num, s in enumerate(signals or [], start=2):
+        iid = s.get("initiative_id")
+        record = dict(s)
+        record["initiative"] = init_names.get(iid, iid or "")
+        _write_data_row(ws_s, row_num, SIGNAL_COLS, record)
+    ws_s.column_dimensions["B"].width = 28
+    ws_s.column_dimensions["E"].width = 50
+    ws_s.column_dimensions["F"].width = 50
+    ws_s.freeze_panes = "A2"
+
+    # ── Tab 9: Meetings (structured + initiative free-text, combined) ────────
+    ws_m = wb.create_sheet("Meetings")
+    _write_header_row(ws_m, MEETING_COLS)
+    meeting_rows = []
+    for m in meetings or []:
+        iid = m.get("initiative_id")
+        record = dict(m)
+        record["initiative"] = init_names.get(iid, iid or "")
+        record["attendees"] = ", ".join(m.get("attendees") or [])
+        record["functions"] = ", ".join(m.get("functions") or [])
+        record["row_source"] = "meetings.json"
+        meeting_rows.append(record)
+    for init in initiatives:
+        if init.outstanding_meetings:
+            meeting_rows.append({
+                "id": "", "initiative": init.name,
+                "purpose": init.outstanding_meetings,
+                "convener": "", "attendees": "", "functions": "",
+                "target_timing": "", "status": "open",
+                "row_source": "initiative-field", "created": "",
+            })
+    for row_num, record in enumerate(meeting_rows, start=2):
+        _write_data_row(ws_m, row_num, MEETING_COLS, record)
+    ws_m.column_dimensions["B"].width = 28
+    ws_m.column_dimensions["C"].width = 60
+    ws_m.column_dimensions["E"].width = 30
+    ws_m.freeze_panes = "A2"
+
+    # ── Tab 10: Review Queue (pending staged items) ───────────────────────────
+    ws_rq = wb.create_sheet("Review Queue")
+    _write_header_row(ws_rq, REVIEW_QUEUE_COLS)
+    for row_num, item in enumerate(staged or [], start=2):
+        _write_data_row(ws_rq, row_num, REVIEW_QUEUE_COLS, item)
+    ws_rq.column_dimensions["A"].width = 30
+    ws_rq.column_dimensions["B"].width = 20
+    ws_rq.column_dimensions["C"].width = 14
+    ws_rq.column_dimensions["D"].width = 80
+    ws_rq.freeze_panes = "A2"
 
     wb.save(path)
