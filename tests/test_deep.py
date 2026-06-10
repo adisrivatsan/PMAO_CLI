@@ -136,3 +136,103 @@ def test_write_staging_shape_and_collision_suffix():
         assert staged["source"] == "Pricing Sync.vtt"
         assert staged["prompt_version"] == PROMPT_VERSION
         assert staged["extraction"] == extraction       # stored verbatim
+
+
+EXTRACTION_FIXTURE = {
+    "meta": {"meeting_slug": "2026-06-10-sync", "prompt_version": "pmao-deep-v1.0", "chunk": "1/1"},
+    "facts": [{"initiative_id": "init-001", "claim": "cost up 9%", "stated_by": "Sarah Klein",
+               "authority": "owner", "confidence": "high", "inferred": False, "source_span": "l12"}],
+    "action_items": [{"initiative_id": "init-001", "type": "analysis_required",
+                      "description": "build the cost model", "owner": "Dev Patel",
+                      "owner_resolution": "alias_merged", "due": "unspecified", "source_span": "l40"}],
+    "alias_flags": [{"variants": ["Dev"], "resolved_to": "Dev Patel", "confidence": "high", "needs_review": True}],
+    "review_flags": ["near-discard: vague SLA aside"],
+    "discard_note": "Discarded ~80%: logistics",
+}
+
+
+def _deep_vault(tmp):
+    from pathlib import Path
+    from pmao.vault import init_vault, save_initiatives
+    vault = Path(tmp)
+    init_vault(vault)
+    save_initiatives(vault, [_make_initiative()])
+    return vault
+
+
+def test_run_ingest_deep_stages_without_touching_canonical(capsys):
+    from unittest.mock import patch
+    from openpyxl import load_workbook
+    from pmao.deep import run_ingest_deep
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = _deep_vault(tmp)
+        source = vault / "transcripts" / "sync.txt"
+        source.write_text("Sarah: cost up 9%. Dev, build the model.")
+
+        with patch("pmao.llm.call_structured", return_value=dict(EXTRACTION_FIXTURE)) as mock:
+            run_ingest_deep(vault, source)
+
+        # Prompt was fully assembled (no leftover placeholders)
+        prompt = mock.call_args[0][0]
+        for ph in PLACEHOLDERS:
+            assert ph not in prompt
+
+        # Staged file exists with verbatim extraction
+        staged_files = list((vault / "staging").glob("*.json"))
+        assert len(staged_files) == 1
+        staged = json.loads(staged_files[0].read_text())
+        assert staged["status"] == "pending_review"
+        assert staged["extraction"]["facts"][0]["claim"] == "cost up 9%"
+
+        # Canonical files untouched
+        assert json.loads((vault / "actions.json").read_text()) == []
+        assert json.loads((vault / "facts.json").read_text()) == []
+
+        # Workbook Review Queue reflects staging
+        wb = load_workbook(vault / "workbook.xlsx")
+        queue = [wb["Review Queue"].cell(row=r, column=4).value for r in (2, 3, 4)]
+        assert "cost up 9%" in queue
+        assert "build the cost model" in queue
+
+        out = capsys.readouterr().out
+        assert "staged, not applied" in out
+        assert "near-discard: vague SLA aside" in out
+        assert "pmao review" in out
+
+
+def test_run_ingest_deep_empty_extraction_stages_nothing(capsys):
+    from unittest.mock import patch
+    from pmao.deep import run_ingest_deep
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = _deep_vault(tmp)
+        source = vault / "transcripts" / "sync.txt"
+        source.write_text("nothing of substance")
+        with patch("pmao.llm.call_structured", return_value={}):
+            run_ingest_deep(vault, source)
+        assert list((vault / "staging").glob("*.json")) == []
+        assert "Nothing extracted" in capsys.readouterr().out
+
+
+def test_run_ingest_deep_warns_when_roster_missing(capsys):
+    from unittest.mock import patch
+    from pmao.deep import run_ingest_deep
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = _deep_vault(tmp)  # no roster.yaml written
+        source = vault / "transcripts" / "sync.txt"
+        source.write_text("text")
+        with patch("pmao.llm.call_structured", return_value={}):
+            run_ingest_deep(vault, source)
+        assert "no roster.yaml" in capsys.readouterr().out
+
+
+def test_cli_ingest_deep_flag_dispatches():
+    import sys
+    from unittest.mock import patch
+    from pmao.cli import main
+    with patch("pmao.deep.run_ingest_deep") as mock_deep, \
+         patch.object(sys, "argv", ["pmao", "ingest", "v/", "--source", "s.txt", "--deep"]):
+        main()
+    mock_deep.assert_called_once()
+    kwargs = mock_deep.call_args.kwargs
+    assert str(kwargs["vault_path"]) == "v"
+    assert str(kwargs["source_path"]) == "s.txt"

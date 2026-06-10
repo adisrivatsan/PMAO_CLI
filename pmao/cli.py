@@ -19,8 +19,12 @@ def cmd_init(args) -> None:
 
 
 def cmd_ingest(args) -> None:
-    from pmao.ingest import run_ingest
-    run_ingest(vault_path=Path(args.vault), source_path=Path(args.source), yes=args.yes, config_override=args.backend)
+    if args.deep:
+        from pmao.deep import run_ingest_deep
+        run_ingest_deep(vault_path=Path(args.vault), source_path=Path(args.source), config_override=args.backend)
+    else:
+        from pmao.ingest import run_ingest
+        run_ingest(vault_path=Path(args.vault), source_path=Path(args.source), yes=args.yes, config_override=args.backend)
 
 
 def cmd_update(args) -> None:
@@ -68,6 +72,8 @@ def main() -> None:
     p_ingest.add_argument("vault", help="Path to vault directory")
     p_ingest.add_argument("--source", required=True, metavar="FILE", help=".vtt, .txt, or .md source file")
     p_ingest.add_argument("--yes", action="store_true", help="Apply without confirmation prompt")
+    p_ingest.add_argument("--deep", action="store_true",
+                          help="Rich extraction staged for review (no direct apply)")
     p_ingest.add_argument("--backend", choices=["claude", "codex"], default=None)
     p_ingest.set_defaults(func=cmd_ingest)
 

@@ -86,6 +86,58 @@ def _validate_extraction(extraction: dict, initiatives: List[Initiative]) -> dic
     return extraction
 
 
+def run_ingest_deep(vault_path: Path, source_path: Path, config_override: str = None) -> None:
+    from pmao.transcript import preprocess_transcript
+    from pmao import llm
+    from pmao.ingest import _load_skill
+
+    print(f"Preprocessing {source_path.name}...")
+    text = preprocess_transcript(source_path)
+
+    initiatives = load_initiatives(vault_path)
+    people = load_roster(vault_path)
+    if people is None:
+        print("Warning: no roster.yaml found — authority will be 'unknown' and principal signals will be empty.")
+
+    skill = _load_skill("ingest-deep")
+    prompt = _build_deep_prompt(
+        skill,
+        initiatives,
+        roster_text=render_roster(people),
+        recon_text=_reconciliation_block(vault_path),
+        calibration_text=_calibration_block(vault_path),
+        source_text=text,
+    )
+
+    print("Calling LLM for deep extraction (this may take ~60s)...")
+    extraction = llm.call_structured(prompt, config_override=config_override)
+    extraction = _validate_extraction(extraction, initiatives)
+
+    counts = {cat: len(extraction[cat]) for cat in ITEM_CATEGORIES}
+    print("\n--- Deep extraction results (staged, not applied) ---")
+    for cat, n in counts.items():
+        print(f"  {cat}: {n}")
+    if extraction["discard_note"]:
+        print(f"  discard_note: {extraction['discard_note']}")
+    if extraction["alias_flags"]:
+        print("\nAlias flags:")
+        for a in extraction["alias_flags"]:
+            variants = " / ".join(a.get("variants", []))
+            print(f"  {variants} -> {a.get('resolved_to', '?')} ({a.get('confidence', '?')})")
+    if extraction["review_flags"]:
+        print("\nReview flags:")
+        for flag in extraction["review_flags"]:
+            print(f"  - {flag}")
+
+    if not any(counts.values()):
+        print("\nNothing extracted — nothing staged.")
+        return
+
+    staged_path = _write_staging(vault_path, extraction, source_path.name)
+    refresh_workbook(vault_path)
+    print(f"\nStaged for review: staging/{staged_path.name}. Run 'pmao review' to promote.")
+
+
 def _slugify(name: str) -> str:
     stem = Path(name).stem.lower()
     return re.sub(r"[^a-z0-9]+", "-", stem).strip("-") or "source"
