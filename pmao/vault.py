@@ -13,6 +13,9 @@ VAULT_FILES = [
     "questions.json",
     "decisions.json",
     "hypotheses.json",
+    "facts.json",
+    "signals.json",
+    "meetings.json",
     "workbook.xlsx",
 ]
 
@@ -20,6 +23,7 @@ VAULT_FILES = [
 def init_vault(vault_path: Path, project_name: str = "My Project", owner: str = "") -> None:
     vault_path.mkdir(parents=True, exist_ok=True)
     (vault_path / "transcripts").mkdir(exist_ok=True)
+    (vault_path / "staging").mkdir(exist_ok=True)
 
     config = {
         "project_name": project_name,
@@ -34,6 +38,9 @@ def init_vault(vault_path: Path, project_name: str = "My Project", owner: str = 
     (vault_path / "questions.json").write_text("[]")
     (vault_path / "decisions.json").write_text("[]")
     (vault_path / "hypotheses.json").write_text("[]")
+    (vault_path / "facts.json").write_text("[]")
+    (vault_path / "signals.json").write_text("[]")
+    (vault_path / "meetings.json").write_text("[]")
 
     from pmao.excel import create_workbook
     create_workbook(vault_path / "workbook.xlsx", [])
@@ -50,6 +57,12 @@ def save_initiatives(vault_path: Path, initiatives: List[Initiative]) -> None:
         shutil.copy2(target, vault_path / "initiatives.json.bak")
     data = [i.to_dict() for i in initiatives]
     target.write_text(json.dumps(data, indent=2, default=str))
+
+
+def load_list(vault_path: Path, filename: str) -> list:
+    """Load a JSON-array vault file; empty list if absent."""
+    path = vault_path / filename
+    return json.loads(path.read_text()) if path.exists() else []
 
 
 def seed_from_csv(vault_path: Path, csv_path: Path) -> int:

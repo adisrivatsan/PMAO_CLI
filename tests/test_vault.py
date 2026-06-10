@@ -80,3 +80,35 @@ def test_init_vault_creates_hypotheses_json():
         hyp_path = vault / "hypotheses.json"
         assert hyp_path.exists()
         assert json.loads(hyp_path.read_text()) == []
+
+
+def test_init_vault_creates_deep_extraction_files():
+    import tempfile
+    from pathlib import Path
+    from pmao.vault import init_vault
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp)
+        init_vault(vault)
+        assert (vault / "staging").is_dir()
+        assert (vault / "facts.json").read_text() == "[]"
+        assert (vault / "signals.json").read_text() == "[]"
+        assert (vault / "meetings.json").read_text() == "[]"
+
+
+def test_load_list_missing_file_returns_empty():
+    import tempfile
+    from pathlib import Path
+    from pmao.vault import load_list
+    with tempfile.TemporaryDirectory() as tmp:
+        assert load_list(Path(tmp), "facts.json") == []
+
+
+def test_load_list_reads_json_array():
+    import json
+    import tempfile
+    from pathlib import Path
+    from pmao.vault import load_list
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp)
+        (vault / "facts.json").write_text(json.dumps([{"id": "fact-1"}]))
+        assert load_list(vault, "facts.json") == [{"id": "fact-1"}]
