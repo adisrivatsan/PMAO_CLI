@@ -56,7 +56,7 @@ def _record_for(category: str, item: dict, source: str, verdict: str):
     if category == "open_questions":
         return "questions.json", "q", dict(base,
             question=item.get("question", ""), raised_by=item.get("raised_by", ""),
-            status="open")
+            why_it_matters=item.get("why_it_matters", ""), status="open")
     if category == "principal_signals":
         return "signals.json", "sig", dict(base,
             principal=item.get("principal", ""), lever=item.get("lever", ""),

@@ -415,6 +415,19 @@ def test_open_question_raised_by_edit_reaches_canonical(monkeypatch):
         assert qs[0]["raised_by"] == "Dana"
 
 
+def test_open_question_why_it_matters_persisted():
+    from pmao.review import promote_extraction
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = _vault(tmp)
+        approved = [{"category": "open_questions", "verdict": "approved",
+                     "item": {"initiative_id": "general", "question": "who owns legal?",
+                              "raised_by": "Dana", "why_it_matters": "blocks contract review",
+                              "source_span": "l33"}}]
+        promote_extraction(vault, approved, source="sync.vtt")
+        qs = load_list(vault, "questions.json")
+        assert qs[0]["why_it_matters"] == "blocks contract review"
+
+
 # ── Finding 6 regression: initiative_id edits validated against known ids ──
 
 def test_edit_to_unknown_initiative_id_reprompts(monkeypatch, capsys):
