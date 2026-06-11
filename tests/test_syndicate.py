@@ -170,6 +170,92 @@ def test_run_syndicate_prompt_history_includes_open_items_only():
         assert "Other-initiative meeting" not in prompt
 
 
+def test_run_syndicate_top_level_list_raises_clean_error():
+    """Fix: a top-level JSON list from the LLM must raise a clean ValueError,
+    not AttributeError on setdefault."""
+    from unittest.mock import patch
+    from pmao.syndicate import run_syndicate
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = _vault(tmp)
+        with patch("pmao.llm.call_structured", return_value=[{"pathway": []}]):
+            with pytest.raises(ValueError, match="expected an object"):
+                run_syndicate(vault, "init-001")
+        assert list((vault / "staging").glob("*.json")) == []
+
+
+def test_run_syndicate_null_and_wrong_type_fields_do_not_crash(capsys):
+    """Fix: null/wrong-type pathway, meetings_to_schedule, review_flags must not crash
+    (setdefault keeps existing None values)."""
+    from unittest.mock import patch
+    from pmao.syndicate import run_syndicate
+    cases = [
+        {"pathway": None, "meetings_to_schedule": None, "review_flags": None},
+        {"pathway": "talk to finance first"},
+    ]
+    for payload in cases:
+        with tempfile.TemporaryDirectory() as tmp:
+            vault = _vault(tmp)
+            with patch("pmao.llm.call_structured", return_value=payload):
+                run_syndicate(vault, "init-001")
+    out = capsys.readouterr().out
+    assert "(no pathway steps returned)" in out
+
+
+def test_run_syndicate_malformed_pathway_steps_flagged():
+    """Fix: a null pathway step or null stakeholders must not crash; malformed
+    steps are review-flagged and staged for human review."""
+    from unittest.mock import patch
+    from pmao.syndicate import run_syndicate
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = _vault(tmp)
+        payload = {
+            "pathway": [None, {"step": 1, "stakeholders": None, "purpose": "x"}],
+            "meetings_to_schedule": [],
+            "review_flags": [],
+        }
+        with patch("pmao.llm.call_structured", return_value=payload):
+            run_syndicate(vault, "init-001")
+        staged_files = list((vault / "staging").glob("*.json"))
+        assert len(staged_files) == 1
+        ext = json.loads(staged_files[0].read_text())["extraction"]
+        assert any("pathway step" in f for f in ext["review_flags"])
+
+
+def test_run_syndicate_string_stakeholders_not_character_joined(capsys):
+    """Fix: "stakeholders": "Bob" must print 'Bob', not 'B, o, b'."""
+    from unittest.mock import patch
+    from pmao.syndicate import run_syndicate
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = _vault(tmp)
+        payload = {
+            "pathway": [{"step": 1, "stakeholders": "Bob", "purpose": "x"}],
+            "meetings_to_schedule": [],
+            "review_flags": [],
+        }
+        with patch("pmao.llm.call_structured", return_value=payload):
+            run_syndicate(vault, "init-001")
+        out = capsys.readouterr().out
+        assert "Bob" in out
+        assert "B, o, b" not in out
+
+
+def test_run_syndicate_string_meeting_item_dropped_with_flag():
+    """Fix: "meetings_to_schedule": ["kickoff"] must not crash; the non-dict item
+    is dropped with a review flag."""
+    from unittest.mock import patch
+    from pmao.syndicate import run_syndicate
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = _vault(tmp)
+        payload = {"pathway": [], "meetings_to_schedule": ["kickoff"], "review_flags": []}
+        with patch("pmao.llm.call_structured", return_value=payload):
+            run_syndicate(vault, "init-001")
+        staged_files = list((vault / "staging").glob("*.json"))
+        assert len(staged_files) == 1
+        ext = json.loads(staged_files[0].read_text())["extraction"]
+        assert ext["meetings_to_schedule"] == []
+        assert any("kickoff" in f for f in ext["review_flags"])
+
+
 def test_run_syndicate_stages_standard_extraction_shape():
     """Fix: staged syndicate extraction must be a standard staging extraction —
     all STAGED_CATEGORIES keys present (others empty), plus alias_flags and discard_note."""

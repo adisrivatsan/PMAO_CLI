@@ -58,19 +58,39 @@ def run_syndicate(vault_path: Path, initiative_id: str, config_override: str = N
 
     print(f"Recommending syndication pathway for {init.name} (this may take ~30s)...")
     result = llm.call_structured(prompt, config_override=config_override)
-    result.setdefault("pathway", [])
-    result.setdefault("meetings_to_schedule", [])
-    result.setdefault("review_flags", [])
+    if not isinstance(result, dict):
+        raise ValueError(
+            f"LLM returned JSON of type {type(result).__name__}, "
+            f"expected an object — nothing staged."
+        )
 
     from pmao.deep import _validate_extraction
-    extraction_check = {"meetings_to_schedule": result["meetings_to_schedule"],
-                        "review_flags": result["review_flags"]}
+    extraction_check = {"meetings_to_schedule": result.get("meetings_to_schedule"),
+                        "review_flags": result.get("review_flags")}
     _validate_extraction(extraction_check, initiatives)
+    result["meetings_to_schedule"] = extraction_check["meetings_to_schedule"]
     result["review_flags"] = extraction_check["review_flags"]
+
+    pathway = result.get("pathway")
+    if not isinstance(pathway, list):
+        if pathway is not None:
+            result["review_flags"].append(
+                f"malformed pathway: expected a list, got {type(pathway).__name__} — dropped"
+            )
+        pathway = []
+    result["pathway"] = pathway
 
     print(f"\n--- Syndication pathway: {init.name} ---")
     for step in result["pathway"]:
-        who = ", ".join(step.get("stakeholders", []))
+        if not isinstance(step, dict):
+            result["review_flags"].append(
+                f"malformed pathway step dropped: {str(step)[:80]}"
+            )
+            continue
+        stakeholders = step.get("stakeholders") or []
+        if not isinstance(stakeholders, list):
+            stakeholders = [stakeholders]
+        who = ", ".join(str(s) for s in stakeholders)
         print(f"{step.get('step', '?')}. {who} — {step.get('purpose', '')}")
         if step.get("why"):
             print(f"   why: {step['why']}")
