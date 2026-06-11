@@ -44,6 +44,8 @@ pmao export my-project/
 | `pmao summarize <vault>` | Produce an executive summary |
 | `pmao export <vault>` | Regenerate workbook.xlsx from current state |
 | `pmao config <vault>` | View project configuration |
+| `pmao review <vault>` | Walk staged extractions: approve/edit/reject, promote to canonical files, learn from verdicts |
+| `pmao syndicate <vault> --initiative ID` | Recommend stakeholder pathway + meeting cadence; proposals staged for review |
 
 All LLM commands accept `--backend claude` or `--backend codex` to override auto-detection.
 
@@ -100,6 +102,7 @@ All LLM reasoning is in `skills/`. Edit these to change how the LLM interprets y
 | `skills/update.md` | `pmao update` — interactive field update flow |
 | `skills/status.md` | `pmao status` — status dashboard rendering |
 | `skills/summarize.md` | `pmao summarize` — executive summary generation |
+| `skills/syndicate.md` | `pmao syndicate` — pathway + cadence recommendation |
 
 ## Seeding initiatives from CSV
 
@@ -115,7 +118,7 @@ See `templates/initiative-template.csv` for the full template.
 
 ## Deep ingest and the roster
 
-`pmao ingest --deep` runs a richer extraction (facts, hypotheses, decisions, open questions, principal signals, meetings to schedule, typed action items, alias/review flags) and writes the result to `staging/` — canonical files are only changed when a human promotes items via the review gate (`pmao review`, upcoming).
+`pmao ingest --deep` runs a richer extraction (facts, hypotheses, decisions, open questions, principal signals, meetings to schedule, typed action items, alias/review flags) and writes the result to `staging/` — canonical files are only changed when a human promotes items via the review gate (`pmao review`).
 
 Add an optional `roster.yaml` to the vault to enable owner/alias resolution and authority calls:
 
@@ -136,6 +139,14 @@ people:
 Without a roster, deep ingest still runs but marks authority `unknown`. A malformed roster is a hard error — fix it before ingesting.
 
 The skill lives at `skills/ingest-deep.md`; edit it to change extraction behavior, no Python required.
+
+## Review gate
+
+`pmao review` walks every pending staged extraction item by item. Verdict keys: `[a]pprove / [e]dit / [r]eject` (hypotheses instead get `[p]romote to fact / [k]eep / [x] kill`), aliases `[y/n]`, review flags `[enter]` accept or `[o]` overturn, `[q]` quit. Writes commit at file boundary — quitting mid-file discards that file's verdicts and leaves it pending.
+
+Every verdict is logged to `learning/verdicts.jsonl`. Durable lessons (confirmed/rejected aliases, rejected-item boundaries, overturned near-discards) are appended to `learning/calibration.md`, which deep ingest injects into every future extraction — the system learns your keep/discard line over time.
+
+Syndication: `pmao syndicate <vault> --initiative init-001` prints the recommended stakeholder pathway to approval and stages the proposed meetings (with cadence, e.g. "biweekly until pricing review") for the same review gate.
 
 ## LLM backend
 
