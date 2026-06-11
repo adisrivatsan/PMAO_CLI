@@ -267,3 +267,19 @@ def test_cmd_init_existing_vault_exits_before_prompting(monkeypatch, capsys):
         assert exc.value.code == 1
         assert prompts == []
         assert len(load_initiatives(vault)) == 1
+
+
+def test_cmd_init_message_does_not_point_at_pmao_update(monkeypatch, capsys):
+    """init must not suggest `pmao update` for adding initiatives — update only
+    edits initiatives that already exist (apply_updates skips unknown ids)."""
+    import sys
+    from unittest.mock import patch
+    from pmao.cli import main
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = str(Path(tmp) / "newvault")
+        monkeypatch.setattr("builtins.input", lambda *a: "")
+        with patch.object(sys, "argv", ["pmao", "init", vault]):
+            main()
+        out = capsys.readouterr().out
+        assert "pmao update" not in out
+        assert "--roster" in out

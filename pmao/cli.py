@@ -16,7 +16,7 @@ def cmd_init(args) -> None:
     init_vault(vault, project_name=project_name, owner=owner)
     print(f"Vault created: {vault.resolve()}")
     print(f"  project-config.yaml — project settings")
-    print(f"  initiatives.json    — empty (add initiatives via --roster or pmao update)")
+    print(f"  initiatives.json    — empty (seed via pmao init --roster FILE, or edit the file directly)")
     print(f"  workbook.xlsx       — blank workbook ready")
     if args.roster:
         count = seed_from_csv(vault, Path(args.roster))
