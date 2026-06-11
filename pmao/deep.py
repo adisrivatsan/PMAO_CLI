@@ -8,7 +8,7 @@ from pmao.models import Initiative
 from pmao.vault import load_initiatives, load_list, refresh_workbook, STAGED_CATEGORIES
 from pmao.roster import load_roster, render_roster
 
-PROMPT_VERSION = "pmao-deep-v1.0"
+PROMPT_VERSION = "pmao-deep-v1.1"
 CALIBRATION_LINE_CAP = 200
 RECON_DECISION_CAP = 20
 

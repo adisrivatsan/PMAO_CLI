@@ -16,7 +16,7 @@ def test_skill_file_has_no_legacy_roster_or_chunking():
     assert "principal_roster" not in text
     assert "pre-chunked" not in text
     assert '"chunk": "1/1"' in text
-    assert "pmao-deep-v1.0" in text
+    assert "pmao-deep-v1.1" in text
 
 
 def test_skill_file_requires_initiative_id_everywhere():
@@ -139,7 +139,7 @@ def test_write_staging_shape_and_collision_suffix():
 
 
 EXTRACTION_FIXTURE = {
-    "meta": {"meeting_slug": "2026-06-10-sync", "prompt_version": "pmao-deep-v1.0", "chunk": "1/1"},
+    "meta": {"meeting_slug": "2026-06-10-sync", "prompt_version": "pmao-deep-v1.1", "chunk": "1/1"},
     "facts": [{"initiative_id": "init-001", "claim": "cost up 9%", "stated_by": "Sarah Klein",
                "authority": "owner", "confidence": "high", "inferred": False, "source_span": "l12"}],
     "action_items": [{"initiative_id": "init-001", "type": "analysis_required",
