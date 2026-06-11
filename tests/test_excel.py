@@ -307,6 +307,18 @@ def test_control_characters_are_stripped_not_fatal():
         assert wb["Facts"].cell(row=2, column=3).value == "cost up 9% per Q2 review"
 
 
+def test_dict_value_coerced_to_text_not_fatal():
+    init = _make_initiative()
+    claim = {"text": "nested"}
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "wb.xlsx"
+        create_workbook(path, [init], facts=[_make_fact(claim)])  # must not raise
+        wb = load_workbook(path)
+        val = wb["Facts"].cell(row=2, column=3).value
+        assert isinstance(val, str)
+        assert "nested" in val
+
+
 def test_overlong_value_truncated_with_marker():
     init = _make_initiative()
     claim = "x" * 40000

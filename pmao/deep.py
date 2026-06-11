@@ -4,6 +4,8 @@ from datetime import date
 from pathlib import Path
 from typing import List
 
+from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
+
 from pmao.models import Initiative
 from pmao.vault import load_initiatives, load_list, refresh_workbook, STAGED_CATEGORIES
 from pmao.roster import load_roster, render_roster
@@ -39,14 +41,16 @@ def _build_deep_prompt(
 
 def _reconciliation_block(vault_path: Path) -> str:
     """Open actions + the newest RECON_DECISION_CAP decisions, one per line with ids."""
-    actions = [a for a in load_list(vault_path, "actions.json") if a.get("status") == "open"]
-    decisions = load_list(vault_path, "decisions.json")[-RECON_DECISION_CAP:]
+    actions = [a for a in load_list(vault_path, "actions.json")
+               if isinstance(a, dict) and a.get("status") == "open"]
+    decisions = [d for d in load_list(vault_path, "decisions.json")
+                 if isinstance(d, dict)][-RECON_DECISION_CAP:]
     lines = []
     for a in actions:
         due = a.get("due") or "no due date"
-        lines.append(f"{a['id']}: {a['description']} (owner: {a.get('owner', '?')}, due: {due})")
+        lines.append(f"{a.get('id', '?')}: {a.get('description', '?')} (owner: {a.get('owner', '?')}, due: {due})")
     for d in decisions:
-        lines.append(f"{d['id']}: {d['decision']}")
+        lines.append(f"{d.get('id', '?')}: {d.get('decision', '?')}")
     return "\n".join(lines) if lines else "none"
 
 
@@ -59,19 +63,68 @@ def _calibration_block(vault_path: Path) -> str:
     return "\n".join(lines[-CALIBRATION_LINE_CAP:])
 
 
+def _sanitize_value(value):
+    """Strip openpyxl-illegal control chars from strings; stringify dicts and
+    other exotic objects so staged/promoted values can never wedge the workbook."""
+    if isinstance(value, str):
+        return ILLEGAL_CHARACTERS_RE.sub("", value)
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    if isinstance(value, list):
+        return [_sanitize_value(v) for v in value]
+    return ILLEGAL_CHARACTERS_RE.sub("", str(value))
+
+
 def _validate_extraction(extraction: dict, initiatives: List[Initiative]) -> dict:
-    """Default missing keys; flag (never drop) unknown initiative ids — recall over precision."""
+    """Default missing keys; normalize wrong-shaped values (flagged, not crashed);
+    sanitize hostile values; flag (never drop) unknown initiative ids — recall over precision."""
+    if not isinstance(extraction, dict):
+        raise ValueError(
+            f"LLM returned JSON of type {type(extraction).__name__}, "
+            f"expected an object — nothing staged."
+        )
+    flags = extraction.get("review_flags")
+    extraction["review_flags"] = (
+        [ILLEGAL_CHARACTERS_RE.sub("", str(f)) for f in flags] if isinstance(flags, list) else []
+    )
     for key in ITEM_CATEGORIES:
-        extraction.setdefault(key, [])
-    extraction.setdefault("alias_flags", [])
-    extraction.setdefault("review_flags", [])
-    extraction.setdefault("discard_note", "")
-    extraction.setdefault("meta", {})
+        items = extraction.get(key)
+        if not isinstance(items, list):
+            if items is not None:
+                extraction["review_flags"].append(
+                    f"malformed {key}: expected a list, got {type(items).__name__} — dropped"
+                )
+            extraction[key] = []
+            continue
+        kept = []
+        for item in items:
+            if not isinstance(item, dict):
+                extraction["review_flags"].append(
+                    f"malformed {key} item dropped: {str(item)[:80]}"
+                )
+                continue
+            kept.append({k: _sanitize_value(v) for k, v in item.items()})
+        extraction[key] = kept
+    aliases = extraction.get("alias_flags")
+    if not isinstance(aliases, list):
+        aliases = []
+    kept_aliases = []
+    for a in aliases:
+        if not isinstance(a, dict):
+            extraction["review_flags"].append(
+                f"malformed alias_flags item dropped: {str(a)[:80]}"
+            )
+            continue
+        kept_aliases.append({k: _sanitize_value(v) for k, v in a.items()})
+    extraction["alias_flags"] = kept_aliases
+    extraction["discard_note"] = _sanitize_value(extraction.get("discard_note") or "")
+    if not isinstance(extraction.get("meta"), dict):
+        extraction["meta"] = {}
     known = {i.id for i in initiatives}
     for category, summary_key in ITEM_CATEGORIES.items():
         for item in extraction[category]:
             iid = item.get("initiative_id")
-            if iid is not None and iid != "general" and iid not in known:
+            if iid is not None and iid != "general" and str(iid) not in known:
                 extraction["review_flags"].append(
                     f"unknown initiative_id '{iid}' on {category}: "
                     f"{str(item.get(summary_key, ''))[:80]}"
@@ -115,14 +168,17 @@ def run_ingest_deep(vault_path: Path, source_path: Path, config_override: str = 
     if extraction["alias_flags"]:
         print("\nAlias flags:")
         for a in extraction["alias_flags"]:
-            variants = " / ".join(a.get("variants", []))
+            variants_raw = a.get("variants") or []
+            if not isinstance(variants_raw, list):
+                variants_raw = [variants_raw]
+            variants = " / ".join(str(v) for v in variants_raw)
             print(f"  {variants} -> {a.get('resolved_to', '?')} ({a.get('confidence', '?')})")
     if extraction["review_flags"]:
         print("\nReview flags:")
         for flag in extraction["review_flags"]:
             print(f"  - {flag}")
 
-    if not any(counts.values()) and not extraction["review_flags"]:
+    if not any(counts.values()) and not extraction["review_flags"] and not extraction["alias_flags"]:
         print("\nNothing extracted — nothing staged.")
         return
 

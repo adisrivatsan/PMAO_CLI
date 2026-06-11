@@ -260,3 +260,124 @@ def test_run_ingest_deep_stages_flags_only_extraction(capsys):
         staged_files = list((vault / "staging").glob("*.json"))
         assert len(staged_files) == 1          # flags alone now stage
         assert "Staged for review" in capsys.readouterr().out
+
+
+def test_run_ingest_deep_stages_alias_only_extraction(capsys):
+    from unittest.mock import patch
+    from pmao.deep import run_ingest_deep
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = _deep_vault(tmp)
+        source = vault / "transcripts" / "sync.txt"
+        source.write_text("Dev said hi")
+        alias_only = {"alias_flags": [{"variants": ["Dev"], "resolved_to": "Dev Patel",
+                                       "confidence": "high", "needs_review": True}]}
+        with patch("pmao.llm.call_structured", return_value=alias_only):
+            run_ingest_deep(vault, source)
+        staged_files = list((vault / "staging").glob("*.json"))
+        assert len(staged_files) == 1          # aliases alone now stage
+        staged = json.loads(staged_files[0].read_text())
+        assert staged["extraction"]["alias_flags"][0]["resolved_to"] == "Dev Patel"
+        out = capsys.readouterr().out
+        assert "Staged for review" in out
+        assert "Nothing extracted" not in out
+
+
+def test_run_ingest_deep_sanitizes_control_chars_and_dict_values():
+    from unittest.mock import patch
+    from pmao.deep import run_ingest_deep
+    from pmao.vault import refresh_workbook
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = _deep_vault(tmp)
+        source = vault / "transcripts" / "sync.txt"
+        source.write_text("hostile content")
+        hostile = {"facts": [
+            {"initiative_id": "init-001", "claim": "budget is \x01 fine"},
+            {"initiative_id": "init-001", "claim": {"text": "nested"}},
+        ]}
+        with patch("pmao.llm.call_structured", return_value=hostile):
+            run_ingest_deep(vault, source)    # must not crash refresh_workbook
+        staged_files = list((vault / "staging").glob("*.json"))
+        assert len(staged_files) == 1
+        staged = json.loads(staged_files[0].read_text())
+        claims = [f["claim"] for f in staged["extraction"]["facts"]]
+        assert claims[0] == "budget is  fine"            # control char stripped
+        assert isinstance(claims[1], str)                # dict coerced to str
+        assert "nested" in claims[1]
+        refresh_workbook(vault)                          # export stays healthy
+
+
+def test_validate_extraction_rejects_non_dict_top_level():
+    import pytest
+    from pmao.deep import _validate_extraction
+    with pytest.raises(ValueError):
+        _validate_extraction([], [_make_initiative()])
+
+
+def test_validate_extraction_normalizes_wrong_shapes():
+    from pmao.deep import _validate_extraction
+    extraction = {
+        "facts": None,
+        "hypotheses": "not a list",
+        "decisions": [None, "raw string", {"initiative_id": ["init-001"], "decision": "ok"}],
+        "alias_flags": None,
+        "review_flags": None,
+        "meta": None,
+    }
+    out = _validate_extraction(extraction, [_make_initiative()])
+    assert out["facts"] == []
+    assert out["hypotheses"] == []
+    assert out["decisions"] == [{"initiative_id": ["init-001"], "decision": "ok"}]
+    assert out["alias_flags"] == []
+    assert out["meta"] == {}
+    flags = out["review_flags"]
+    assert isinstance(flags, list)
+    assert any("hypotheses" in f for f in flags)         # non-list category flagged
+    assert any("raw string" in f for f in flags)         # non-dict item flagged
+    assert any("init-001" in f for f in flags)           # unhashable id flagged, not crashed
+
+
+def test_run_ingest_deep_survives_wrong_shape_llm_output(capsys):
+    from unittest.mock import patch
+    from pmao.deep import run_ingest_deep
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = _deep_vault(tmp)
+        source = vault / "transcripts" / "sync.txt"
+        source.write_text("text")
+        hostile = {
+            "facts": None,
+            "action_items": [None, "stray"],
+            "initiative_id": ["init-001"],
+            "alias_flags": [{"variants": None, "resolved_to": "Dev Patel"}, "stray alias"],
+            "review_flags": None,
+            "decisions": [{"initiative_id": "init-999", "decision": "orphan"}],
+        }
+        with patch("pmao.llm.call_structured", return_value=hostile):
+            run_ingest_deep(vault, source)    # must not crash on prints or flag appends
+        staged_files = list((vault / "staging").glob("*.json"))
+        assert len(staged_files) == 1
+        out = capsys.readouterr().out
+        assert "Dev Patel" in out             # null variants printed without crashing
+        assert "init-999" in out              # unknown id still flagged
+
+
+def test_reconciliation_block_tolerates_hand_edited_files():
+    from pathlib import Path
+    from pmao.deep import _reconciliation_block
+    from pmao.vault import init_vault
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp)
+        init_vault(vault)
+        # open action missing 'id' and 'description'; decision missing 'id'
+        (vault / "actions.json").write_text(json.dumps([
+            {"status": "open", "owner": "Dev Patel"},
+        ]))
+        (vault / "decisions.json").write_text(json.dumps([
+            {"decision": "ship it"},
+        ]))
+        block = _reconciliation_block(vault)  # no KeyError
+        assert "ship it" in block
+
+        # top-level JSON object instead of array — no AttributeError
+        (vault / "actions.json").write_text(json.dumps({"act-1": {"status": "open"}}))
+        (vault / "decisions.json").write_text(json.dumps({"dec-1": {"decision": "x"}}))
+        assert _reconciliation_block(vault) == "none"

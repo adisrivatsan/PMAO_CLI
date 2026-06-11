@@ -93,6 +93,9 @@ def _write_header_row(ws, cols: list) -> None:
 def _write_data_row(ws, row_num: int, cols: list, record: dict) -> None:
     for ci, col_name in enumerate(cols, start=1):
         val = record.get(col_name, "") or ""
+        if not isinstance(val, (str, int, float, bool)):
+            # Stringify exotic values (e.g. dicts from hand-edited vault files)
+            val = str(val)
         if isinstance(val, str):
             # Strip control chars openpyxl rejects (can arrive verbatim from transcripts)
             val = ILLEGAL_CHARACTERS_RE.sub("", val)
