@@ -85,11 +85,7 @@ def run_syndicate(vault_path: Path, initiative_id: str, config_override: str = N
         print("\nNo meetings proposed — nothing staged.")
         return
 
-    extraction = {
-        "meetings_to_schedule": result["meetings_to_schedule"],
-        "review_flags": result["review_flags"],
-    }
-    staged_path = _write_staging(vault_path, extraction, f"syndicate-{initiative_id}")
+    staged_path = _write_staging(vault_path, extraction_check, f"syndicate-{initiative_id}")
     refresh_workbook(vault_path)
     n = len(result["meetings_to_schedule"])
     print(f"\nStaged {n} proposed meeting(s): staging/{staged_path.name}. Run 'pmao review' to promote.")

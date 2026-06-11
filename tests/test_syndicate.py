@@ -121,3 +121,25 @@ def test_run_syndicate_flags_unknown_initiative_id():
         ext = json.loads(staged_files[0].read_text())["extraction"]
         assert ext["review_flags"], "no flag raised for unknown initiative_id init-999"
         assert any("init-999" in f for f in ext["review_flags"])
+
+
+def test_run_syndicate_stages_standard_extraction_shape():
+    """Fix: staged syndicate extraction must be a standard staging extraction —
+    all STAGED_CATEGORIES keys present (others empty), plus alias_flags and discard_note."""
+    from unittest.mock import patch
+    from pmao.syndicate import run_syndicate
+    from pmao.vault import STAGED_CATEGORIES
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = _vault(tmp)
+        with patch("pmao.llm.call_structured", return_value=dict(SYNDICATE_OUTPUT)):
+            run_syndicate(vault, "init-001")
+        staged_files = list((vault / "staging").glob("*.json"))
+        assert len(staged_files) == 1
+        ext = json.loads(staged_files[0].read_text())["extraction"]
+        for category in STAGED_CATEGORIES:
+            assert category in ext, f"staged extraction missing category '{category}'"
+            if category != "meetings_to_schedule":
+                assert ext[category] == []
+        assert ext["meetings_to_schedule"] == SYNDICATE_OUTPUT["meetings_to_schedule"]
+        assert ext["alias_flags"] == []
+        assert ext["discard_note"] == ""
