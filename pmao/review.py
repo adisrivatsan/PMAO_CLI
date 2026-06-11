@@ -212,7 +212,8 @@ def _display_item(category: str, item: dict, idx: int, total: int) -> None:
     summary_key = STAGED_CATEGORIES[category]
     print(f"\n[{category} {idx}/{total}] initiative: {item.get('initiative_id') or '(project-level)'}")
     print(f"  {summary_key}: {item.get(summary_key, '')}")
-    for k in ("owner", "owner_resolution", "stated_by", "held_by", "decided_by", "authority",
+    for k in ("owner", "owner_resolution", "stated_by", "held_by", "decided_by", "raised_by",
+              "principal", "convener", "convener_resolution", "authority",
               "confidence", "type", "due", "target_timing", "cadence", "would_confirm", "source_span"):
         if item.get(k):
             print(f"  {k}: {item[k]}")

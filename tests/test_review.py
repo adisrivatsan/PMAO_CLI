@@ -482,6 +482,26 @@ def test_string_reconciliation_candidates_does_not_crash(monkeypatch):
 
 # ── Finding 8 regression: _mint_id must never reuse an existing id ─────────
 
+def test_display_item_shows_person_field_for_every_category(capsys):
+    from pmao.review import _display_item
+    cases = [
+        ("open_questions", {"initiative_id": "init-001", "question": "who owns legal?",
+                            "raised_by": "Sarah Klein"},
+         ["raised_by: Sarah Klein"]),
+        ("principal_signals", {"initiative_id": "init-001", "signal": "wants floor",
+                               "principal": "Sarah Klein"},
+         ["principal: Sarah Klein"]),
+        ("meetings_to_schedule", {"initiative_id": "init-001", "purpose": "align on cost model",
+                                  "convener": "Sarah Klein", "convener_resolution": "matched_roster"},
+         ["convener: Sarah Klein", "convener_resolution: matched_roster"]),
+    ]
+    for category, item, expected in cases:
+        _display_item(category, item, 1, 1)
+        out = capsys.readouterr().out
+        for line in expected:
+            assert line in out, f"{category} display missing '{line}'"
+
+
 def test_mint_id_skips_existing_ids_after_deletion():
     from pmao.review import _mint_id
     today = date.today().isoformat()
