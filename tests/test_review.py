@@ -132,3 +132,127 @@ def test_learning_writers_append_and_cap():
         assert len(cal_lines) == CALIBRATION_MAX_LINES
         assert f"lesson {CALIBRATION_MAX_LINES + 49}" in cal_lines[-1]   # newest kept
         assert not any("lesson 0 " in ln or ln.endswith("lesson 0") for ln in cal_lines)
+
+
+def _staged_file(vault, extraction, name="2026-06-10-sync.json", status="pending_review"):
+    payload = {"status": status, "ingested": "2026-06-10", "source": "sync.vtt",
+               "prompt_version": "pmao-deep-v1.1", "extraction": extraction}
+    (vault / "staging" / name).write_text(json.dumps(payload))
+    return vault / "staging" / name
+
+
+def _run_with_inputs(monkeypatch, answers, fn, *args):
+    it = iter(answers)
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(it))
+    fn(*args)
+
+
+def test_run_review_approve_reject_and_hypothesis_verdicts(monkeypatch, capsys):
+    from pmao.review import run_review
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = _vault(tmp)
+        staged = _staged_file(vault, {
+            "facts": [{"initiative_id": "init-001", "claim": "cost up 9%", "stated_by": "Sarah Klein",
+                       "authority": "owner", "confidence": "high", "inferred": False, "source_span": "l1"}],
+            "hypotheses": [{"initiative_id": "init-001", "theory": "bundling wins", "held_by": "PM",
+                            "would_confirm": "pilot", "source_span": "l2"}],
+            "action_items": [{"initiative_id": "init-001", "description": "junk item", "owner": "",
+                              "type": "communication", "due": "", "source_span": "l3"}],
+            "alias_flags": [{"variants": ["Dev"], "resolved_to": "Dev Patel", "confidence": "high",
+                             "needs_review": True}],
+            "review_flags": ["near-discard: vague SLA aside"],
+        })
+        # answers: alias confirm, fact approve, hypothesis keep, action reject, flag accept-drop
+        _run_with_inputs(monkeypatch, ["y", "a", "k", "r", ""], run_review, vault)
+
+        assert len(load_list(vault, "facts.json")) == 1
+        assert len(load_list(vault, "hypotheses.json")) == 1
+        assert load_list(vault, "actions.json") == []          # rejected
+        assert json.loads(staged.read_text())["status"] == "reviewed"
+
+        verdicts = [json.loads(l) for l in
+                    (vault / "learning" / "verdicts.jsonl").read_text().strip().splitlines()]
+        kinds = {v["verdict"] for v in verdicts}
+        assert {"alias_confirmed", "approved", "kept", "rejected", "flag_acknowledged"} <= kinds
+
+        cal = (vault / "learning" / "calibration.md").read_text()
+        assert 'alias: "Dev" → "Dev Patel" (confirmed)' in cal
+        assert "boundary: rejected action_items" in cal
+
+
+def test_run_review_edit_changes_fields(monkeypatch):
+    from pmao.review import run_review
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = _vault(tmp)
+        _staged_file(vault, {
+            "action_items": [{"initiative_id": "general", "description": "build model",
+                              "owner": "", "type": "analysis_required", "due": "", "source_span": "l1"}],
+        })
+        # edit: initiative_id -> init-001, owner -> Dev Patel, description kept (empty input)
+        _run_with_inputs(monkeypatch, ["e", "init-001", "Dev Patel", ""], run_review, vault)
+        acts = load_list(vault, "actions.json")
+        assert acts[0]["initiative_id"] == "init-001"
+        assert acts[0]["owner"] == "Dev Patel"
+        assert acts[0]["description"] == "build model"
+
+
+def test_run_review_merge_into_reconciliation_candidate(monkeypatch):
+    from pmao.review import run_review
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = _vault(tmp)
+        (vault / "actions.json").write_text(json.dumps([
+            {"id": "act-old-0000", "initiative_id": "init-001", "description": "build model",
+             "owner": "Dev Patel", "due": "", "status": "open"}]))
+        _staged_file(vault, {
+            "action_items": [{"initiative_id": "init-001", "description": "build model v2",
+                              "owner": "Dev Patel", "type": "analysis_required", "due": "",
+                              "source_span": "l1",
+                              "reconciliation_candidates": [
+                                  {"existing": "act-old-0000", "match_confidence": "high"}]}],
+        })
+        # approve, then merge yes
+        _run_with_inputs(monkeypatch, ["a", "y"], run_review, vault)
+        acts = load_list(vault, "actions.json")
+        assert len(acts) == 1
+        assert "[updated: build model v2]" in acts[0]["description"]
+
+
+def test_run_review_quit_discards_current_file(monkeypatch):
+    from pmao.review import run_review
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = _vault(tmp)
+        staged = _staged_file(vault, {
+            "facts": [{"initiative_id": "init-001", "claim": "first", "source_span": "l1"},
+                      {"initiative_id": "init-001", "claim": "second", "source_span": "l2"}],
+        })
+        _run_with_inputs(monkeypatch, ["a", "q"], run_review, vault)   # approve one, then quit
+        assert load_list(vault, "facts.json") == []                    # nothing promoted
+        assert json.loads(staged.read_text())["status"] == "pending_review"
+
+
+def test_run_review_nothing_pending(capsys):
+    from pmao.review import run_review
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = _vault(tmp)
+        run_review(vault)
+        assert "Nothing to review." in capsys.readouterr().out
+
+
+def test_run_review_skips_corrupt_staging_file(monkeypatch, capsys):
+    from pmao.review import run_review
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = _vault(tmp)
+        (vault / "staging" / "bad.json").write_text("{not json")
+        run_review(vault)
+        out = capsys.readouterr().out
+        assert "bad.json" in out and "Nothing to review." in out
+
+
+def test_cli_review_dispatches():
+    import sys
+    from unittest.mock import patch
+    from pmao.cli import main
+    with patch("pmao.review.run_review") as mock_review, \
+         patch.object(sys, "argv", ["pmao", "review", "v/"]):
+        main()
+    mock_review.assert_called_once()

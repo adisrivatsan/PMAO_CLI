@@ -1,7 +1,7 @@
 import json
 from datetime import date
 from pathlib import Path
-from typing import List, Optional
+from typing import List
 
 from pmao.vault import (
     load_initiatives, save_initiatives, load_list,
@@ -19,6 +19,8 @@ class _Quit(Exception):
 
 def _record_for(category: str, item: dict, source: str, verdict: str):
     """Map a staged item to (canonical filename, id prefix, record dict without id)."""
+    if verdict == "killed":
+        raise ValueError("killed items are never promoted")
     today = date.today().isoformat()
     base = {"initiative_id": item.get("initiative_id"), "source": source, "created": today}
     if category == "facts":
@@ -141,3 +143,159 @@ def append_calibration(vault_path: Path, lesson: str) -> None:
     lines = cal.read_text(encoding="utf-8").splitlines() if cal.exists() else []
     lines.append(f"- {date.today().isoformat()} {lesson}")
     cal.write_text("\n".join(lines[-CALIBRATION_MAX_LINES:]) + "\n", encoding="utf-8")
+
+
+# ── Interactive gate ───────────────────────────────────────────────────────────
+
+def _ask(prompt: str, choices: str) -> str:
+    """Prompt until the answer is one of `choices`. 'q' or EOF/interrupt quits."""
+    while True:
+        try:
+            ans = input(prompt).strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            raise _Quit()
+        if ans == "q":
+            raise _Quit()
+        if ans in choices.split("/"):
+            return ans
+
+
+def _display_item(category: str, item: dict, idx: int, total: int) -> None:
+    summary_key = STAGED_CATEGORIES[category]
+    print(f"\n[{category} {idx}/{total}] initiative: {item.get('initiative_id') or '(project-level)'}")
+    print(f"  {summary_key}: {item.get(summary_key, '')}")
+    for k in ("owner", "owner_resolution", "stated_by", "held_by", "decided_by", "authority",
+              "confidence", "type", "due", "target_timing", "cadence", "would_confirm", "source_span"):
+        if item.get(k):
+            print(f"  {k}: {item[k]}")
+    for rc in item.get("reconciliation_candidates") or []:
+        print(f"  possible match: {rc.get('existing')} ({rc.get('match_confidence')})")
+
+
+def _edit_item(category: str, item: dict) -> dict:
+    """Prompt for initiative_id, owner, and the summary field; empty input keeps current."""
+    summary_key = STAGED_CATEGORIES[category]
+    edits = {}
+    for field in ("initiative_id", "owner", summary_key):
+        old = item.get(field) or ""
+        try:
+            new = input(f"  {field} [{old}]: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            raise _Quit()
+        if new and new != old:
+            edits[field] = [old, new]
+            item[field] = new
+    return edits
+
+
+def _review_file(vault_path: Path, staged_path: Path, data: dict) -> None:
+    extraction = data.get("extraction", {})
+    source = data.get("source", staged_path.name)
+    print(f"\n=== Reviewing {staged_path.name} (source: {source}, ingested: {data.get('ingested', '?')}) ===")
+    if extraction.get("discard_note"):
+        print(f"discard_note: {extraction['discard_note']}")
+
+    approved, verdicts = [], []
+
+    for alias in extraction.get("alias_flags", []):
+        variants = " / ".join(alias.get("variants", []))
+        print(f"\nAlias: {variants} -> {alias.get('resolved_to')} ({alias.get('confidence')})")
+        ans = _ask("  confirm alias? [y/n] ", "y/n")
+        verdict = "alias_confirmed" if ans == "y" else "alias_rejected"
+        verdicts.append({"category": "alias_flags", "summary": f"{variants} -> {alias.get('resolved_to')}",
+                         "verdict": verdict})
+
+    for category, summary_key in STAGED_CATEGORIES.items():
+        items = extraction.get(category, [])
+        for idx, item in enumerate(items, start=1):
+            _display_item(category, item, idx, len(items))
+            base = {"category": category, "initiative_id": item.get("initiative_id"),
+                    "summary": item.get(summary_key, "")}
+            if category == "hypotheses":
+                ans = _ask("  [p]romote to fact / [k]eep / [x] kill / [q]uit: ", "p/k/x")
+                if ans == "x":
+                    verdicts.append(dict(base, verdict="killed"))
+                    continue
+                verdict = "promoted" if ans == "p" else "kept"
+                approved.append({"category": category, "item": item, "verdict": verdict})
+                verdicts.append(dict(base, verdict=verdict))
+                continue
+            ans = _ask("  [a]pprove / [e]dit / [r]eject / [q]uit: ", "a/e/r")
+            if ans == "r":
+                verdicts.append(dict(base, verdict="rejected"))
+                continue
+            entry = {"category": category, "item": item, "verdict": "approved"}
+            if ans == "e":
+                edits = _edit_item(category, item)
+                entry["verdict"] = "edited"
+                verdicts.append(dict(base, verdict="edited", edited=edits,
+                                     summary=item.get(summary_key, "")))
+            else:
+                verdicts.append(dict(base, verdict="approved"))
+            rcs = item.get("reconciliation_candidates") or []
+            if rcs:
+                ans = _ask(f"  merge into existing {rcs[0].get('existing')}? [y/n] ", "y/n")
+                if ans == "y":
+                    entry["merged_into"] = rcs[0].get("existing")
+                    verdicts[-1]["verdict"] = "merged"
+                    verdicts[-1]["merged_into"] = rcs[0].get("existing")
+            approved.append(entry)
+
+    for flag in extraction.get("review_flags", []):
+        print(f"\nReview flag: {flag}")
+        try:
+            ans = input("  [enter] accept / [o] overturn (extract similar next time): ").strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            raise _Quit()
+        if ans == "q":
+            raise _Quit()
+        if ans == "o":
+            verdicts.append({"category": "review_flags", "summary": flag, "verdict": "flag_overturned"})
+        else:
+            verdicts.append({"category": "review_flags", "summary": flag, "verdict": "flag_acknowledged"})
+
+    # ── Commit at file boundary ────────────────────────────────────────────────
+    promote_extraction(vault_path, approved, source=source)
+    today = date.today().isoformat()
+    for v in verdicts:
+        append_verdict(vault_path, dict(v, ts=today, staging_file=staged_path.name))
+        if v["verdict"] == "alias_confirmed":
+            variants, resolved = v["summary"].split(" -> ")
+            append_calibration(vault_path, f'alias: "{variants}" → "{resolved}" (confirmed)')
+        elif v["verdict"] == "alias_rejected":
+            variants, resolved = v["summary"].split(" -> ")
+            append_calibration(vault_path, f'alias: "{variants}" → "{resolved}" (REJECTED — do not merge)')
+        elif v["verdict"] == "rejected":
+            append_calibration(vault_path,
+                f'boundary: rejected {v["category"]}: "{v["summary"]}" — do not extract similar')
+        elif v["verdict"] == "flag_overturned":
+            append_calibration(vault_path,
+                f'boundary: near-discard overturned: "{v["summary"]}" — extract similar next time')
+    data["status"] = "reviewed"
+    data["reviewed"] = today
+    staged_path.write_text(json.dumps(data, indent=2))
+    refresh_workbook(vault_path)
+    print(f"\n{staged_path.name}: reviewed. Promoted {len(approved)} item(s).")
+
+
+def run_review(vault_path: Path) -> None:
+    staging_dir = vault_path / "staging"
+    pending = []
+    if staging_dir.exists():
+        for f in sorted(staging_dir.glob("*.json")):
+            try:
+                data = json.loads(f.read_text())
+            except json.JSONDecodeError:
+                print(f"Warning: skipping corrupt staging file {f.name}")
+                continue
+            if data.get("status") == "pending_review":
+                pending.append((f, data))
+    if not pending:
+        print("Nothing to review.")
+        return
+    for f, data in pending:
+        try:
+            _review_file(vault_path, f, data)
+        except _Quit:
+            print(f"\nQuit — {f.name} left pending; its verdicts were discarded.")
+            return

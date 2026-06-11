@@ -42,6 +42,11 @@ def cmd_summarize(args) -> None:
     run_summarize(vault_path=Path(args.vault), config_override=args.backend)
 
 
+def cmd_review(args) -> None:
+    from pmao.review import run_review
+    run_review(vault_path=Path(args.vault))
+
+
 def cmd_export(args) -> None:
     from pmao.vault import load_initiatives, refresh_workbook
     vault = Path(args.vault)
@@ -91,6 +96,10 @@ def main() -> None:
     p_summarize.add_argument("vault", help="Path to vault directory")
     p_summarize.add_argument("--backend", choices=["claude", "codex"], default=None)
     p_summarize.set_defaults(func=cmd_summarize)
+
+    p_review = sub.add_parser("review", help="Review staged deep-ingest extractions and promote")
+    p_review.add_argument("vault", help="Path to vault directory")
+    p_review.set_defaults(func=cmd_review)
 
     p_export = sub.add_parser("export", help="Regenerate workbook.xlsx from project state")
     p_export.add_argument("vault", help="Path to vault directory")
