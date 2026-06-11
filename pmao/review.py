@@ -55,7 +55,8 @@ def _record_for(category: str, item: dict, source: str, verdict: str):
             owner=item.get("decided_by", ""), status="recorded", source_type="[transcript]")
     if category == "open_questions":
         return "questions.json", "q", dict(base,
-            question=item.get("question", ""), status="open")
+            question=item.get("question", ""), raised_by=item.get("raised_by", ""),
+            status="open")
     if category == "principal_signals":
         return "signals.json", "sig", dict(base,
             principal=item.get("principal", ""), lever=item.get("lever", ""),
@@ -77,20 +78,30 @@ def _record_for(category: str, item: dict, source: str, verdict: str):
 
 
 def _mint_id(prefix: str, records: list) -> str:
-    return f"{prefix}-{date.today().isoformat()}-{len(records):04d}"
+    today = date.today().isoformat()
+    existing = {r.get("id") for r in records if isinstance(r, dict)}
+    n = len(records)
+    while f"{prefix}-{today}-{n:04d}" in existing:
+        n += 1
+    return f"{prefix}-{today}-{n:04d}"
 
 
-def _apply_merge(records: list, entry: dict) -> None:
-    """Fold an approved action item into the existing open action it matched."""
+def _apply_merge(records: list, entry: dict) -> bool:
+    """Fold an approved action item into the existing open action it matched.
+
+    Returns False if the merge target does not exist (the caller must then
+    promote the item as a new record instead of dropping it).
+    """
     target = next((r for r in records if r.get("id") == entry["merged_into"]), None)
     if target is None:
-        return
+        return False
     new_desc = entry["item"].get("description", "")
     if new_desc:
         target["description"] = f"{target.get('description', '')} [updated: {new_desc}]"
     new_due = entry["item"].get("due", "")
     if new_due and new_due != "unspecified":
         target["due"] = new_due
+    return True
 
 
 def promote_extraction(vault_path: Path, approved: List[dict], source: str) -> List[str]:
@@ -108,10 +119,13 @@ def promote_extraction(vault_path: Path, approved: List[dict], source: str) -> L
         if iid and iid != "general":
             touched.add(iid)
         if entry.get("merged_into"):
-            if entry["category"] == "action_items":
-                records = by_file.setdefault("actions.json", load_list(vault_path, "actions.json"))
-                _apply_merge(records, entry)
-            continue
+            if entry["category"] != "action_items":
+                continue
+            records = by_file.setdefault("actions.json", load_list(vault_path, "actions.json"))
+            if _apply_merge(records, entry):
+                continue
+            print(f"Warning: merge target {entry['merged_into']} not found — promoting as new item.")
+            # fall through: promote as a new record instead of losing the item
         fname, prefix, rec = _record_for(entry["category"], entry["item"], source, entry["verdict"])
         records = by_file.setdefault(fname, load_list(vault_path, fname))
         rec_id = _mint_id(prefix, records)
@@ -171,6 +185,29 @@ def _ask(prompt: str, choices: str) -> str:
             return ans
 
 
+def _ask_merge(prompt: str) -> str:
+    """Merge prompt: empty input means no ([y/N]). 'q' or EOF/interrupt quits."""
+    while True:
+        try:
+            ans = input(prompt).strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            raise _Quit()
+        if ans == "q":
+            raise _Quit()
+        if ans == "":
+            return "n"
+        if ans in ("y", "n"):
+            return ans
+
+
+def _candidates(item: dict) -> list:
+    """The item's reconciliation_candidates, tolerating malformed staged shapes."""
+    rcs = item.get("reconciliation_candidates")
+    if not isinstance(rcs, list):
+        return []
+    return [rc for rc in rcs if isinstance(rc, dict)]
+
+
 def _display_item(category: str, item: dict, idx: int, total: int) -> None:
     summary_key = STAGED_CATEGORIES[category]
     print(f"\n[{category} {idx}/{total}] initiative: {item.get('initiative_id') or '(project-level)'}")
@@ -179,21 +216,30 @@ def _display_item(category: str, item: dict, idx: int, total: int) -> None:
               "confidence", "type", "due", "target_timing", "cadence", "would_confirm", "source_span"):
         if item.get(k):
             print(f"  {k}: {item[k]}")
-    for rc in item.get("reconciliation_candidates") or []:
+    for rc in _candidates(item):
         print(f"  possible match: {rc.get('existing')} ({rc.get('match_confidence')})")
 
 
-def _edit_item(category: str, item: dict) -> dict:
-    """Prompt for initiative_id, person field, and the summary field; empty input keeps current."""
+def _edit_item(category: str, item: dict, known_ids: set) -> dict:
+    """Prompt for initiative_id, person field, and the summary field; empty input keeps current.
+
+    initiative_id edits are validated against known initiative ids (+ 'general'),
+    mirroring _validate_extraction — re-prompt on unknown ids.
+    """
     summary_key = STAGED_CATEGORIES[category]
     person_key = PERSON_KEYS.get(category, "owner")
     edits = {}
     for field in ("initiative_id", person_key, summary_key):
         old = item.get(field) or ""
-        try:
-            new = input(f"  {field} [{old}]: ").strip()
-        except (EOFError, KeyboardInterrupt):
-            raise _Quit()
+        while True:
+            try:
+                new = input(f"  {field} [{old}]: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                raise _Quit()
+            if field == "initiative_id" and new and new != old and new not in known_ids:
+                print(f"  unknown initiative_id '{new}' — known: {', '.join(sorted(known_ids))}")
+                continue
+            break
         if new and new != old:
             edits[field] = [old, new]
             item[field] = new
@@ -203,70 +249,109 @@ def _edit_item(category: str, item: dict) -> dict:
 def _review_file(vault_path: Path, staged_path: Path, data: dict) -> None:
     extraction = data.get("extraction", {})
     source = data.get("source", staged_path.name)
+    known_ids = {i.id for i in load_initiatives(vault_path)} | {"general"}
+
+    # Normalize malformed staged shapes so hostile content never crashes the gate.
+    alias_flags = extraction.get("alias_flags")
+    alias_flags = alias_flags if isinstance(alias_flags, list) else []
+    review_flags = extraction.get("review_flags")
+    review_flags = review_flags if isinstance(review_flags, list) else []
+    cat_items = {}
+    for category in STAGED_CATEGORIES:
+        items = extraction.get(category)
+        cat_items[category] = items if isinstance(items, list) else []
+
     print(f"\n=== Reviewing {staged_path.name} (source: {source}, ingested: {data.get('ingested', '?')}) ===")
+    counts = ", ".join(f"{c}: {len(items)}" for c, items in cat_items.items() if items)
+    if counts:
+        print(f"counts: {counts}")
     if extraction.get("discard_note"):
         print(f"discard_note: {extraction['discard_note']}")
 
     approved, verdicts = [], []
+    total = len(alias_flags) + sum(len(v) for v in cat_items.values()) + len(review_flags)
 
-    for alias in extraction.get("alias_flags", []):
-        variants_list = alias.get("variants", [])
-        variants = " / ".join(variants_list)
-        resolved_to = alias.get("resolved_to")
-        print(f"\nAlias: {variants} -> {resolved_to} ({alias.get('confidence')})")
-        ans = _ask("  confirm alias? [y/n] ", "y/n")
-        verdict = "alias_confirmed" if ans == "y" else "alias_rejected"
-        verdicts.append({"category": "alias_flags", "summary": f"{variants} -> {resolved_to}",
-                         "verdict": verdict, "variants": variants_list, "resolved_to": resolved_to})
+    try:
+        for alias in alias_flags:
+            if not isinstance(alias, dict):
+                print(f"\nWarning: skipping malformed alias_flags entry: {alias!r}")
+                verdicts.append({"category": "alias_flags", "summary": str(alias)[:80],
+                                 "verdict": "skipped_malformed"})
+                continue
+            variants_raw = alias.get("variants")
+            variants_list = ([v for v in variants_raw if isinstance(v, str)]
+                             if isinstance(variants_raw, list) else [])
+            variants = " / ".join(variants_list)
+            resolved_to = alias.get("resolved_to")
+            print(f"\nAlias: {variants} -> {resolved_to} ({alias.get('confidence')})")
+            ans = _ask("  confirm alias? [y/n] ", "y/n")
+            verdict = "alias_confirmed" if ans == "y" else "alias_rejected"
+            verdicts.append({"category": "alias_flags", "summary": f"{variants} -> {resolved_to}",
+                             "verdict": verdict, "variants": variants_list, "resolved_to": resolved_to})
 
-    for category, summary_key in STAGED_CATEGORIES.items():
-        items = extraction.get(category, [])
-        for idx, item in enumerate(items, start=1):
-            _display_item(category, item, idx, len(items))
-            base = {"category": category, "initiative_id": item.get("initiative_id"),
-                    "summary": item.get(summary_key, "")}
-            if category == "hypotheses":
-                ans = _ask("  [p]romote to fact / [k]eep / [x] kill / [q]uit: ", "p/k/x")
-                if ans == "x":
-                    verdicts.append(dict(base, verdict="killed"))
+        for category, summary_key in STAGED_CATEGORIES.items():
+            items = cat_items[category]
+            for idx, item in enumerate(items, start=1):
+                if not isinstance(item, dict):
+                    print(f"\nWarning: skipping malformed {category} item: {item!r}")
+                    verdicts.append({"category": category, "summary": str(item)[:80],
+                                     "verdict": "skipped_malformed"})
                     continue
-                verdict = "promoted" if ans == "p" else "kept"
-                approved.append({"category": category, "item": item, "verdict": verdict})
-                verdicts.append(dict(base, verdict=verdict))
-                continue
-            ans = _ask("  [a]pprove / [e]dit / [r]eject / [q]uit: ", "a/e/r")
-            if ans == "r":
-                verdicts.append(dict(base, verdict="rejected"))
-                continue
-            entry = {"category": category, "item": item, "verdict": "approved"}
-            if ans == "e":
-                edits = _edit_item(category, item)
-                entry["verdict"] = "edited"
-                verdicts.append(dict(base, verdict="edited", edited=edits,
-                                     summary=item.get(summary_key, "")))
-            else:
-                verdicts.append(dict(base, verdict="approved"))
-            rcs = item.get("reconciliation_candidates") or []
-            if rcs:
-                ans = _ask(f"  merge into existing {rcs[0].get('existing')}? [y/n] ", "y/n")
-                if ans == "y":
-                    entry["merged_into"] = rcs[0].get("existing")
-                    verdicts[-1]["verdict"] = "merged"
-                    verdicts[-1]["merged_into"] = rcs[0].get("existing")
-            approved.append(entry)
+                _display_item(category, item, idx, len(items))
+                base = {"category": category, "initiative_id": item.get("initiative_id"),
+                        "summary": item.get(summary_key, "")}
+                if category == "hypotheses":
+                    ans = _ask("  [p]romote to fact / [k]eep / [x] kill / [q]uit: ", "p/k/x")
+                    if ans == "x":
+                        verdicts.append(dict(base, verdict="killed"))
+                        continue
+                    verdict = "promoted" if ans == "p" else "kept"
+                    approved.append({"category": category, "item": item, "verdict": verdict})
+                    verdicts.append(dict(base, verdict=verdict))
+                    continue
+                ans = _ask("  [a]pprove / [e]dit / [r]eject / [q]uit: ", "a/e/r")
+                if ans == "r":
+                    verdicts.append(dict(base, verdict="rejected"))
+                    continue
+                entry = {"category": category, "item": item, "verdict": "approved"}
+                if ans == "e":
+                    edits = _edit_item(category, item, known_ids)
+                    entry["verdict"] = "edited"
+                    verdicts.append(dict(base, verdict="edited", edited=edits,
+                                         summary=item.get(summary_key, "")))
+                else:
+                    verdicts.append(dict(base, verdict="approved"))
+                rcs = _candidates(item)
+                if rcs:
+                    cand = rcs[0].get("existing")
+                    if category == "action_items" and not any(
+                            r.get("id") == cand
+                            for r in load_list(vault_path, "actions.json")
+                            if isinstance(r, dict)):
+                        print(f"  match {cand} not found in actions.json — will promote as new item")
+                    else:
+                        ans = _ask_merge(f"  merge into existing {cand}? [y/N] ")
+                        if ans == "y":
+                            entry["merged_into"] = cand
+                            verdicts[-1]["verdict"] = "merged"
+                            verdicts[-1]["merged_into"] = cand
+                approved.append(entry)
 
-    for flag in extraction.get("review_flags", []):
-        print(f"\nReview flag: {flag}")
-        try:
-            ans = input("  [enter] accept / [o] overturn (extract similar next time): ").strip().lower()
-        except (EOFError, KeyboardInterrupt):
-            raise _Quit()
-        if ans == "q":
-            raise _Quit()
-        if ans == "o":
-            verdicts.append({"category": "review_flags", "summary": flag, "verdict": "flag_overturned"})
-        else:
-            verdicts.append({"category": "review_flags", "summary": flag, "verdict": "flag_acknowledged"})
+        for flag in review_flags:
+            print(f"\nReview flag: {flag}")
+            try:
+                ans = input("  [enter] accept / [o] overturn (extract similar next time): ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                raise _Quit()
+            if ans == "q":
+                raise _Quit()
+            if ans == "o":
+                verdicts.append({"category": "review_flags", "summary": flag, "verdict": "flag_overturned"})
+            else:
+                verdicts.append({"category": "review_flags", "summary": flag, "verdict": "flag_acknowledged"})
+    except _Quit:
+        print(f"\nskipped {max(total - len(verdicts), 0)} unreviewed item(s) in {staged_path.name}")
+        raise
 
     # ── Commit at file boundary ────────────────────────────────────────────────
     # Order: promote → staging flip → learning writes → workbook

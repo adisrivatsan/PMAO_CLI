@@ -289,3 +289,203 @@ def test_alias_with_arrow_in_variant_does_not_crash(monkeypatch):
         _run_with_inputs(monkeypatch, ["y"], run_review, vault)
         cal = (vault / "learning" / "calibration.md").read_text()
         assert "A -> B" in cal
+
+
+# ── Finding 1 regression: header per-category counts ───────────────────────
+
+def test_review_file_header_prints_category_counts(monkeypatch, capsys):
+    from pmao.review import run_review
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = _vault(tmp)
+        _staged_file(vault, {
+            "facts": [{"initiative_id": "init-001", "claim": "first", "source_span": "l1"},
+                      {"initiative_id": "init-001", "claim": "second", "source_span": "l2"}],
+            "action_items": [{"initiative_id": "init-001", "description": "build model",
+                              "owner": "Dev Patel", "type": "analysis_required", "due": "",
+                              "source_span": "l3"}],
+        })
+        _run_with_inputs(monkeypatch, ["a", "a", "a"], run_review, vault)
+        out = capsys.readouterr().out
+        assert "facts: 2" in out
+        assert "action_items: 1" in out
+        assert "hypotheses" not in out      # zero categories omitted from header
+
+
+# ── Finding 2 regression: quit mid-file prints what was skipped ────────────
+
+def test_quit_mid_file_prints_skipped_count(monkeypatch, capsys):
+    from pmao.review import run_review
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = _vault(tmp)
+        _staged_file(vault, {
+            "facts": [{"initiative_id": "init-001", "claim": "first", "source_span": "l1"},
+                      {"initiative_id": "init-001", "claim": "second", "source_span": "l2"},
+                      {"initiative_id": "init-001", "claim": "third", "source_span": "l3"}],
+        })
+        _run_with_inputs(monkeypatch, ["a", "q"], run_review, vault)
+        out = capsys.readouterr().out
+        assert "skipped 2 unreviewed item(s) in 2026-06-10-sync.json" in out
+
+
+# ── Finding 3 regression: merge prompt defaults to No on empty input ───────
+
+def test_merge_prompt_empty_input_means_no(monkeypatch):
+    from pmao.review import run_review
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = _vault(tmp)
+        (vault / "actions.json").write_text(json.dumps([
+            {"id": "act-old-0000", "initiative_id": "init-001", "description": "build model",
+             "owner": "Dev Patel", "due": "", "status": "open"}]))
+        _staged_file(vault, {
+            "action_items": [{"initiative_id": "init-001", "description": "build model v2",
+                              "owner": "Dev Patel", "type": "analysis_required", "due": "",
+                              "source_span": "l1",
+                              "reconciliation_candidates": [
+                                  {"existing": "act-old-0000", "match_confidence": "high"}]}],
+        })
+        # approve, then hit enter at the merge prompt -> no merge, new item created
+        _run_with_inputs(monkeypatch, ["a", ""], run_review, vault)
+        acts = load_list(vault, "actions.json")
+        assert len(acts) == 2
+        assert "[updated:" not in acts[0]["description"]
+
+
+# ── Finding 4 regression: merge into nonexistent id must not lose the item ─
+
+def test_merge_into_missing_target_promotes_as_new(monkeypatch, capsys):
+    from pmao.review import run_review
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = _vault(tmp)
+        _staged_file(vault, {
+            "action_items": [{"initiative_id": "init-001", "description": "build model",
+                              "owner": "Dev Patel", "type": "analysis_required", "due": "",
+                              "source_span": "l1",
+                              "reconciliation_candidates": [
+                                  {"existing": "act-ghost-9999", "match_confidence": "high"}]}],
+        })
+        # approve; no merge prompt should be offered for a phantom id
+        _run_with_inputs(monkeypatch, ["a"], run_review, vault)
+        acts = load_list(vault, "actions.json")
+        assert len(acts) == 1
+        assert acts[0]["description"] == "build model"
+        verdicts = [json.loads(l) for l in
+                    (vault / "learning" / "verdicts.jsonl").read_text().strip().splitlines()]
+        assert all(v["verdict"] != "merged" for v in verdicts)
+        assert "act-ghost-9999" in capsys.readouterr().out
+
+
+def test_promote_merge_missing_target_falls_back_to_new_record():
+    from pmao.review import promote_extraction
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = _vault(tmp)
+        approved = [{"category": "action_items", "verdict": "merged", "merged_into": "act-ghost-9999",
+                     "item": {"initiative_id": "init-001", "description": "build model",
+                              "owner": "Dev Patel", "due": "2026-06-20"}}]
+        minted = promote_extraction(vault, approved, source="sync.vtt")
+        acts = load_list(vault, "actions.json")
+        assert len(acts) == 1 and acts[0]["description"] == "build model"
+        assert len(minted) == 1
+
+
+# ── Finding 5 regression: open_questions raised_by must be persisted ───────
+
+def test_open_question_raised_by_persisted():
+    from pmao.review import promote_extraction
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = _vault(tmp)
+        approved = [{"category": "open_questions", "verdict": "approved",
+                     "item": {"initiative_id": "general", "question": "who owns legal?",
+                              "raised_by": "Dana", "source_span": "l33"}}]
+        promote_extraction(vault, approved, source="sync.vtt")
+        qs = load_list(vault, "questions.json")
+        assert qs[0]["raised_by"] == "Dana"
+
+
+def test_open_question_raised_by_edit_reaches_canonical(monkeypatch):
+    from pmao.review import run_review
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = _vault(tmp)
+        _staged_file(vault, {
+            "open_questions": [{"initiative_id": "general", "question": "who owns legal?",
+                                "raised_by": "", "source_span": "l1"}],
+        })
+        # edit: keep initiative_id, raised_by -> Dana, keep question
+        _run_with_inputs(monkeypatch, ["e", "", "Dana", ""], run_review, vault)
+        qs = load_list(vault, "questions.json")
+        assert qs[0]["raised_by"] == "Dana"
+
+
+# ── Finding 6 regression: initiative_id edits validated against known ids ──
+
+def test_edit_to_unknown_initiative_id_reprompts(monkeypatch, capsys):
+    from pmao.review import run_review
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = _vault(tmp)
+        _staged_file(vault, {
+            "action_items": [{"initiative_id": "general", "description": "build model",
+                              "owner": "", "type": "analysis_required", "due": "",
+                              "source_span": "l1"}],
+        })
+        # edit: typo'd id rejected and re-prompted, then valid id, owner keep, description keep
+        _run_with_inputs(monkeypatch, ["e", "init-O01", "init-001", "", ""], run_review, vault)
+        acts = load_list(vault, "actions.json")
+        assert acts[0]["initiative_id"] == "init-001"
+        assert "unknown initiative_id 'init-O01'" in capsys.readouterr().out
+        init = load_initiatives(vault)[0]
+        assert init.last_touched == date.today()
+
+
+# ── Finding 7 regression: hostile staged content must not crash the gate ───
+
+def test_alias_with_null_variants_does_not_crash(monkeypatch):
+    from pmao.review import run_review
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = _vault(tmp)
+        staged = _staged_file(vault, {
+            "alias_flags": [{"variants": None, "resolved_to": "Dev Patel",
+                             "confidence": "low"}],
+        })
+        _run_with_inputs(monkeypatch, ["y"], run_review, vault)
+        assert json.loads(staged.read_text())["status"] == "reviewed"
+
+
+def test_bare_string_item_skipped_with_verdict(monkeypatch, capsys):
+    from pmao.review import run_review
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = _vault(tmp)
+        staged = _staged_file(vault, {
+            "facts": ["just a string, not a dict"],
+        })
+        _run_with_inputs(monkeypatch, [], run_review, vault)
+        assert json.loads(staged.read_text())["status"] == "reviewed"
+        assert load_list(vault, "facts.json") == []
+        verdicts = [json.loads(l) for l in
+                    (vault / "learning" / "verdicts.jsonl").read_text().strip().splitlines()]
+        assert verdicts[0]["verdict"] == "skipped_malformed"
+        assert "malformed" in capsys.readouterr().out.lower()
+
+
+def test_string_reconciliation_candidates_does_not_crash(monkeypatch):
+    from pmao.review import run_review
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = _vault(tmp)
+        _staged_file(vault, {
+            "action_items": [{"initiative_id": "init-001", "description": "build model",
+                              "owner": "Dev Patel", "type": "analysis_required", "due": "",
+                              "source_span": "l1",
+                              "reconciliation_candidates": "act-001"}],
+        })
+        _run_with_inputs(monkeypatch, ["a"], run_review, vault)
+        acts = load_list(vault, "actions.json")
+        assert len(acts) == 1 and acts[0]["description"] == "build model"
+
+
+# ── Finding 8 regression: _mint_id must never reuse an existing id ─────────
+
+def test_mint_id_skips_existing_ids_after_deletion():
+    from pmao.review import _mint_id
+    today = date.today().isoformat()
+    records = [{"id": f"fact-{today}-0000"}, {"id": f"fact-{today}-0002"}]
+    minted = _mint_id("fact", records)
+    assert minted not in {r["id"] for r in records}
+    assert minted == f"fact-{today}-0003"
