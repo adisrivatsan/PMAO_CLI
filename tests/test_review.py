@@ -515,6 +515,28 @@ def test_display_item_shows_person_field_for_every_category(capsys):
             assert line in out, f"{category} display missing '{line}'"
 
 
+def test_display_item_shows_context_fields_for_every_category(capsys):
+    from pmao.review import _display_item
+    cases = [
+        ("open_questions", {"initiative_id": "init-001", "question": "who owns legal?",
+                            "raised_by": "Sarah Klein", "why_it_matters": "blocks pricing sign-off"},
+         ["why_it_matters: blocks pricing sign-off"]),
+        ("principal_signals", {"initiative_id": "init-001", "signal": "wants floor",
+                               "principal": "Sarah Klein", "lever": "pricing",
+                               "implication": "raise the floor price"},
+         ["lever: pricing", "implication: raise the floor price"]),
+        ("meetings_to_schedule", {"initiative_id": "init-001", "purpose": "align on cost model",
+                                  "convener": "Sarah Klein",
+                                  "attendees": ["Sarah Klein", "Bob Tran"]},
+         ["attendees: Sarah Klein, Bob Tran"]),
+    ]
+    for category, item, expected in cases:
+        _display_item(category, item, 1, 1)
+        out = capsys.readouterr().out
+        for line in expected:
+            assert line in out, f"{category} display missing '{line}'"
+
+
 def test_mint_id_skips_existing_ids_after_deletion():
     from pmao.review import _mint_id
     today = date.today().isoformat()

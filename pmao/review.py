@@ -213,10 +213,14 @@ def _display_item(category: str, item: dict, idx: int, total: int) -> None:
     print(f"\n[{category} {idx}/{total}] initiative: {item.get('initiative_id') or '(project-level)'}")
     print(f"  {summary_key}: {item.get(summary_key, '')}")
     for k in ("owner", "owner_resolution", "stated_by", "held_by", "decided_by", "raised_by",
-              "principal", "convener", "convener_resolution", "authority",
+              "why_it_matters", "principal", "lever", "implication",
+              "convener", "convener_resolution", "attendees", "authority",
               "confidence", "type", "due", "target_timing", "cadence", "would_confirm", "source_span"):
         if item.get(k):
-            print(f"  {k}: {item[k]}")
+            val = item[k]
+            if isinstance(val, list):
+                val = ", ".join(str(v) for v in val)
+            print(f"  {k}: {val}")
     for rc in _candidates(item):
         print(f"  possible match: {rc.get('existing')} ({rc.get('match_confidence')})")
 
