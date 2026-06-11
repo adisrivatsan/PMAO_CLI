@@ -282,7 +282,7 @@ def test_run_ingest_deep_stages_alias_only_extraction(capsys):
         assert "Nothing extracted" not in out
 
 
-def test_run_ingest_deep_sanitizes_control_chars_and_dict_values():
+def test_run_ingest_deep_sanitizes_control_chars_and_preserves_nested_dicts():
     from unittest.mock import patch
     from pmao.deep import run_ingest_deep
     from pmao.vault import refresh_workbook
@@ -301,9 +301,105 @@ def test_run_ingest_deep_sanitizes_control_chars_and_dict_values():
         staged = json.loads(staged_files[0].read_text())
         claims = [f["claim"] for f in staged["extraction"]["facts"]]
         assert claims[0] == "budget is  fine"            # control char stripped
-        assert isinstance(claims[1], str)                # dict coerced to str
-        assert "nested" in claims[1]
+        assert isinstance(claims[1], dict)               # nested dict preserved verbatim
+        assert claims[1]["text"] == "nested"
         refresh_workbook(vault)                          # export stays healthy
+
+
+def test_run_ingest_deep_reconciliation_candidates_staged_as_dicts(capsys):
+    """Integration: _sanitize_value must preserve nested dicts so
+    reconciliation_candidates are stored as dicts, not stringified dicts.
+    Without the fix, _candidates() in review.py filters them out and the
+    merge prompt never fires."""
+    from unittest.mock import patch
+    from pmao.deep import run_ingest_deep
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = _deep_vault(tmp)
+        # Pre-seed an open action so the merge path is live
+        (vault / "actions.json").write_text(json.dumps([
+            {"id": "act-old-0000", "initiative_id": "init-001", "description": "build model",
+             "owner": "Dev Patel", "due": "", "status": "open"}
+        ]))
+        source = vault / "transcripts" / "sync.txt"
+        source.write_text("Dev: build the model again.")
+        extraction = {
+            "action_items": [{
+                "initiative_id": "init-001",
+                "type": "analysis_required",
+                "description": "build the cost model",
+                "owner": "Dev Patel",
+                "due": "unspecified",
+                "source_span": "l1",
+                "reconciliation_candidates": [
+                    {"existing": "act-old-0000", "match_confidence": "high"}
+                ],
+            }],
+        }
+        with patch("pmao.llm.call_structured", return_value=extraction):
+            run_ingest_deep(vault, source)
+
+        staged_files = list((vault / "staging").glob("*.json"))
+        assert len(staged_files) == 1
+        staged = json.loads(staged_files[0].read_text())
+        action = staged["extraction"]["action_items"][0]
+        rcs = action["reconciliation_candidates"]
+        # Must be a list of dicts, not a list of stringified dicts
+        assert isinstance(rcs, list) and len(rcs) == 1
+        assert isinstance(rcs[0], dict), (
+            f"reconciliation_candidates[0] is {type(rcs[0]).__name__!r}, not dict — "
+            "_sanitize_value is stringifying nested dicts"
+        )
+        assert rcs[0]["existing"] == "act-old-0000"
+        assert rcs[0]["match_confidence"] == "high"
+
+
+def test_run_review_merge_prompt_fires_for_deep_ingest_staged_file(monkeypatch, capsys):
+    """Integration: a staging file produced by run_ingest_deep (which passes through
+    _sanitize_value) must offer the merge prompt during review — proving the full
+    deep-ingest -> stage -> review pipeline preserves reconciliation_candidates as dicts."""
+    from unittest.mock import patch
+    from pmao.deep import run_ingest_deep
+    from pmao.review import run_review
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = _deep_vault(tmp)
+        (vault / "actions.json").write_text(json.dumps([
+            {"id": "act-old-0000", "initiative_id": "init-001", "description": "build model",
+             "owner": "Dev Patel", "due": "", "status": "open"}
+        ]))
+        source = vault / "transcripts" / "sync.txt"
+        source.write_text("Dev: build the model again.")
+        extraction = {
+            "action_items": [{
+                "initiative_id": "init-001",
+                "type": "analysis_required",
+                "description": "build the cost model",
+                "owner": "Dev Patel",
+                "due": "unspecified",
+                "source_span": "l1",
+                "reconciliation_candidates": [
+                    {"existing": "act-old-0000", "match_confidence": "high"}
+                ],
+            }],
+        }
+        with patch("pmao.llm.call_structured", return_value=extraction):
+            run_ingest_deep(vault, source)
+        capsys.readouterr()  # clear ingest output
+
+        # Run review: approve the action item, then choose "y" to merge
+        answers = iter(["a", "y"])
+        monkeypatch.setattr("builtins.input", lambda prompt="": next(answers))
+        run_review(vault)
+
+        out = capsys.readouterr().out
+        # The merge candidate must have been displayed (proves candidates are dicts)
+        assert "possible match: act-old-0000 (high)" in out, (
+            "merge candidate not displayed — reconciliation_candidates were not dicts in staged file"
+        )
+        # Existing action was updated (not a duplicate), proving "y" was consumed by merge prompt
+        from pmao.vault import load_list
+        acts = load_list(vault, "actions.json")
+        assert len(acts) == 1, f"expected 1 action (merged), got {len(acts)}"
+        assert "[updated: build the cost model]" in acts[0]["description"]
 
 
 def test_validate_extraction_rejects_non_dict_top_level():

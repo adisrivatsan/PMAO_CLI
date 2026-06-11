@@ -64,14 +64,16 @@ def _calibration_block(vault_path: Path) -> str:
 
 
 def _sanitize_value(value):
-    """Strip openpyxl-illegal control chars from strings; stringify dicts and
-    other exotic objects so staged/promoted values can never wedge the workbook."""
+    """Strip openpyxl-illegal control chars from strings; recurse into dicts and
+    lists so nested structures (e.g. reconciliation_candidates) are preserved verbatim."""
     if isinstance(value, str):
         return ILLEGAL_CHARACTERS_RE.sub("", value)
     if value is None or isinstance(value, (bool, int, float)):
         return value
     if isinstance(value, list):
         return [_sanitize_value(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _sanitize_value(v) for k, v in value.items()}
     return ILLEGAL_CHARACTERS_RE.sub("", str(value))
 
 
