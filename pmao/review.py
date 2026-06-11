@@ -10,6 +10,17 @@ from pmao.vault import (
 
 CALIBRATION_MAX_LINES = 500
 
+# category -> the person field the gate's "owner" edit should write
+PERSON_KEYS = {
+    "facts": "stated_by",
+    "hypotheses": "held_by",
+    "decisions": "decided_by",
+    "open_questions": "raised_by",
+    "principal_signals": "principal",
+    "meetings_to_schedule": "convener",
+    "action_items": "owner",
+}
+
 
 class _Quit(Exception):
     """User quit mid-file — discard this file's verdicts."""
@@ -173,10 +184,11 @@ def _display_item(category: str, item: dict, idx: int, total: int) -> None:
 
 
 def _edit_item(category: str, item: dict) -> dict:
-    """Prompt for initiative_id, owner, and the summary field; empty input keeps current."""
+    """Prompt for initiative_id, person field, and the summary field; empty input keeps current."""
     summary_key = STAGED_CATEGORIES[category]
+    person_key = PERSON_KEYS.get(category, "owner")
     edits = {}
-    for field in ("initiative_id", "owner", summary_key):
+    for field in ("initiative_id", person_key, summary_key):
         old = item.get(field) or ""
         try:
             new = input(f"  {field} [{old}]: ").strip()
@@ -198,12 +210,14 @@ def _review_file(vault_path: Path, staged_path: Path, data: dict) -> None:
     approved, verdicts = [], []
 
     for alias in extraction.get("alias_flags", []):
-        variants = " / ".join(alias.get("variants", []))
-        print(f"\nAlias: {variants} -> {alias.get('resolved_to')} ({alias.get('confidence')})")
+        variants_list = alias.get("variants", [])
+        variants = " / ".join(variants_list)
+        resolved_to = alias.get("resolved_to")
+        print(f"\nAlias: {variants} -> {resolved_to} ({alias.get('confidence')})")
         ans = _ask("  confirm alias? [y/n] ", "y/n")
         verdict = "alias_confirmed" if ans == "y" else "alias_rejected"
-        verdicts.append({"category": "alias_flags", "summary": f"{variants} -> {alias.get('resolved_to')}",
-                         "verdict": verdict})
+        verdicts.append({"category": "alias_flags", "summary": f"{variants} -> {resolved_to}",
+                         "verdict": verdict, "variants": variants_list, "resolved_to": resolved_to})
 
     for category, summary_key in STAGED_CATEGORIES.items():
         items = extraction.get(category, [])
@@ -255,15 +269,23 @@ def _review_file(vault_path: Path, staged_path: Path, data: dict) -> None:
             verdicts.append({"category": "review_flags", "summary": flag, "verdict": "flag_acknowledged"})
 
     # ── Commit at file boundary ────────────────────────────────────────────────
+    # Order: promote → staging flip → learning writes → workbook
+    # (crash between promote and staging flip would double-promote on re-run,
+    # but flipping staging first then crashing on learning writes is safer)
     promote_extraction(vault_path, approved, source=source)
     today = date.today().isoformat()
+    data["status"] = "reviewed"
+    data["reviewed"] = today
+    staged_path.write_text(json.dumps(data, indent=2))
     for v in verdicts:
         append_verdict(vault_path, dict(v, ts=today, staging_file=staged_path.name))
         if v["verdict"] == "alias_confirmed":
-            variants, resolved = v["summary"].split(" -> ")
+            variants = " / ".join(v.get("variants") or [])
+            resolved = v.get("resolved_to") or ""
             append_calibration(vault_path, f'alias: "{variants}" → "{resolved}" (confirmed)')
         elif v["verdict"] == "alias_rejected":
-            variants, resolved = v["summary"].split(" -> ")
+            variants = " / ".join(v.get("variants") or [])
+            resolved = v.get("resolved_to") or ""
             append_calibration(vault_path, f'alias: "{variants}" → "{resolved}" (REJECTED — do not merge)')
         elif v["verdict"] == "rejected":
             append_calibration(vault_path,
@@ -271,9 +293,6 @@ def _review_file(vault_path: Path, staged_path: Path, data: dict) -> None:
         elif v["verdict"] == "flag_overturned":
             append_calibration(vault_path,
                 f'boundary: near-discard overturned: "{v["summary"]}" — extract similar next time')
-    data["status"] = "reviewed"
-    data["reviewed"] = today
-    staged_path.write_text(json.dumps(data, indent=2))
     refresh_workbook(vault_path)
     print(f"\n{staged_path.name}: reviewed. Promoted {len(approved)} item(s).")
 

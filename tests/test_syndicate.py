@@ -92,3 +92,32 @@ def test_cli_syndicate_dispatches():
         main()
     mock_syn.assert_called_once()
     assert mock_syn.call_args.kwargs["initiative_id"] == "init-001"
+
+
+def test_run_syndicate_flags_unknown_initiative_id():
+    """Fix 4: LLM-returned meetings with unknown initiative_ids must be flagged in review_flags."""
+    from unittest.mock import patch
+    from pmao.syndicate import run_syndicate
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = _vault(tmp)
+        bad_output = {
+            "pathway": [],
+            "meetings_to_schedule": [{
+                "initiative_id": "init-999",
+                "purpose": "Ghost meeting",
+                "convener": None,
+                "attendees": [],
+                "functions": [],
+                "target_timing": "tbd",
+                "cadence": "one-time",
+                "reconciliation_candidates": [],
+            }],
+            "review_flags": [],
+        }
+        with patch("pmao.llm.call_structured", return_value=bad_output):
+            run_syndicate(vault, "init-001")
+        staged_files = list((vault / "staging").glob("*syndicate*"))
+        assert len(staged_files) == 1
+        ext = json.loads(staged_files[0].read_text())["extraction"]
+        assert ext["review_flags"], "no flag raised for unknown initiative_id init-999"
+        assert any("init-999" in f for f in ext["review_flags"])

@@ -256,3 +256,36 @@ def test_cli_review_dispatches():
          patch.object(sys, "argv", ["pmao", "review", "v/"]):
         main()
     mock_review.assert_called_once()
+
+
+# ── Fix 1 regression: per-category owner edits ─────────────────────────────
+
+def test_edit_fact_owner_updates_stated_by(monkeypatch):
+    """Fix 1: editing 'owner' for a fact should write stated_by, not owner."""
+    from pmao.review import run_review
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = _vault(tmp)
+        _staged_file(vault, {
+            "facts": [{"initiative_id": "init-001", "claim": "GM is 62%",
+                       "stated_by": "Sarah", "authority": "unknown",
+                       "confidence": "med"}],
+        })
+        # e -> keep initiative_id, set stated_by -> "Sarah Klein", keep claim
+        _run_with_inputs(monkeypatch, ["e", "", "Sarah Klein", ""], run_review, vault)
+        facts = load_list(vault, "facts.json")
+        assert facts[0]["stated_by"] == "Sarah Klein"
+
+
+def test_alias_with_arrow_in_variant_does_not_crash(monkeypatch):
+    """Fix 3: alias variant containing ' -> ' must not crash calibration writer."""
+    from pmao.review import run_review
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = _vault(tmp)
+        _staged_file(vault, {
+            "alias_flags": [{"variants": ["A -> B"], "resolved_to": "AB",
+                             "confidence": "low"}],
+        })
+        # confirm the alias
+        _run_with_inputs(monkeypatch, ["y"], run_review, vault)
+        cal = (vault / "learning" / "calibration.md").read_text()
+        assert "A -> B" in cal

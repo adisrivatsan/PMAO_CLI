@@ -147,6 +147,35 @@ def test_staging_summaries_flattens_pending_files():
         assert by_cat["review_flag"]["summary"].startswith("possible board-memo")
 
 
+def test_staging_summaries_skips_corrupt_file():
+    """Fix 2: a corrupt staging JSON is skipped with a warning; valid rows still returned."""
+    import tempfile
+    from pathlib import Path
+    from pmao.vault import init_vault, staging_summaries, refresh_workbook
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp)
+        init_vault(vault)
+        # corrupt file
+        (vault / "staging" / "0000-corrupt.json").write_text("{not json")
+        # valid pending file
+        valid_payload = {
+            "status": "pending_review",
+            "ingested": "2026-06-10",
+            "source": "good.txt",
+            "prompt_version": "v",
+            "extraction": {
+                "facts": [{"initiative_id": "init-001", "claim": "GM is 62%",
+                           "stated_by": "Sarah"}],
+            },
+        }
+        (vault / "staging" / "2026-06-10-good.json").write_text(json.dumps(valid_payload))
+        rows = staging_summaries(vault)
+        assert len(rows) == 1
+        assert rows[0]["summary"] == "GM is 62%"
+        # refresh_workbook must not raise either
+        refresh_workbook(vault)
+
+
 def test_refresh_workbook_renders_canonical_and_staged():
     import json
     import tempfile

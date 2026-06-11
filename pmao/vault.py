@@ -87,7 +87,11 @@ def staging_summaries(vault_path: Path) -> list:
     if not staging_dir.exists():
         return rows
     for f in sorted(staging_dir.glob("*.json")):
-        staged = json.loads(f.read_text())
+        try:
+            staged = json.loads(f.read_text())
+        except json.JSONDecodeError:
+            print(f"Warning: skipping corrupt staging file {f.name}")
+            continue
         if staged.get("status") != "pending_review":
             continue
         extraction = staged.get("extraction", {})

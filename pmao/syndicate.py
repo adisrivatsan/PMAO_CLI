@@ -62,6 +62,12 @@ def run_syndicate(vault_path: Path, initiative_id: str, config_override: str = N
     result.setdefault("meetings_to_schedule", [])
     result.setdefault("review_flags", [])
 
+    from pmao.deep import _validate_extraction
+    extraction_check = {"meetings_to_schedule": result["meetings_to_schedule"],
+                        "review_flags": result["review_flags"]}
+    _validate_extraction(extraction_check, initiatives)
+    result["review_flags"] = extraction_check["review_flags"]
+
     print(f"\n--- Syndication pathway: {init.name} ---")
     for step in result["pathway"]:
         who = ", ".join(step.get("stakeholders", []))
