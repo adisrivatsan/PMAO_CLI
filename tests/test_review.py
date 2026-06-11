@@ -509,3 +509,25 @@ def test_mint_id_skips_existing_ids_after_deletion():
     minted = _mint_id("fact", records)
     assert minted not in {r["id"] for r in records}
     assert minted == f"fact-{today}-0003"
+
+
+# ── Edited initiative_id must be reflected in the verdict record ────────────
+
+def test_edit_initiative_id_reflected_in_verdict(monkeypatch):
+    """Editing initiative_id must update the verdict's initiative_id field,
+    not just the nested 'edited' dict — matching how summary is refreshed."""
+    from pmao.review import run_review
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = _vault(tmp)
+        _staged_file(vault, {
+            "action_items": [{"initiative_id": "general", "description": "build model",
+                              "owner": "Dev Patel", "type": "analysis_required", "due": "",
+                              "source_span": "l1"}],
+        })
+        # edit: initiative_id -> init-001, owner kept, description kept
+        _run_with_inputs(monkeypatch, ["e", "init-001", "", ""], run_review, vault)
+        verdicts = [json.loads(l) for l in
+                    (vault / "learning" / "verdicts.jsonl").read_text().strip().splitlines()]
+        edited = [v for v in verdicts if v["verdict"] == "edited"]
+        assert edited[0]["initiative_id"] == "init-001"
+        assert edited[0]["edited"]["initiative_id"] == ["general", "init-001"]

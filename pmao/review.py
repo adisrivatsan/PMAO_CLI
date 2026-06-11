@@ -319,6 +319,7 @@ def _review_file(vault_path: Path, staged_path: Path, data: dict) -> None:
                     edits = _edit_item(category, item, known_ids)
                     entry["verdict"] = "edited"
                     verdicts.append(dict(base, verdict="edited", edited=edits,
+                                         initiative_id=item.get("initiative_id"),
                                          summary=item.get(summary_key, "")))
                 else:
                     verdicts.append(dict(base, verdict="approved"))
