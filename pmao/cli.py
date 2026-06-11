@@ -47,6 +47,11 @@ def cmd_review(args) -> None:
     run_review(vault_path=Path(args.vault))
 
 
+def cmd_syndicate(args) -> None:
+    from pmao.syndicate import run_syndicate
+    run_syndicate(vault_path=Path(args.vault), initiative_id=args.initiative, config_override=args.backend)
+
+
 def cmd_export(args) -> None:
     from pmao.vault import load_initiatives, refresh_workbook
     vault = Path(args.vault)
@@ -100,6 +105,12 @@ def main() -> None:
     p_review = sub.add_parser("review", help="Review staged deep-ingest extractions and promote")
     p_review.add_argument("vault", help="Path to vault directory")
     p_review.set_defaults(func=cmd_review)
+
+    p_syn = sub.add_parser("syndicate", help="Recommend syndication pathway + meeting cadence for an initiative")
+    p_syn.add_argument("vault", help="Path to vault directory")
+    p_syn.add_argument("--initiative", required=True, metavar="ID", help="Initiative id, e.g. init-001")
+    p_syn.add_argument("--backend", choices=["claude", "codex"], default=None)
+    p_syn.set_defaults(func=cmd_syndicate)
 
     p_export = sub.add_parser("export", help="Regenerate workbook.xlsx from project state")
     p_export.add_argument("vault", help="Path to vault directory")

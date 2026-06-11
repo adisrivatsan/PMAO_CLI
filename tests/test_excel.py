@@ -292,16 +292,17 @@ def test_meetings_tab_combines_structured_and_initiative_field():
     meetings = [{"id": "mtg-0001", "initiative_id": "init-001",
                  "purpose": "align on cost model", "convener": "Sarah Klein",
                  "attendees": ["Finance", "CS"], "functions": ["finance"],
-                 "target_timing": "next week", "status": "open",
+                 "target_timing": "next week", "cadence": "biweekly", "status": "open",
                  "source": "sync.vtt", "created": "2026-06-10"}]
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "wb.xlsx"
         create_workbook(path, [init], meetings=meetings)
         wb = load_workbook(path)
         ws = wb["Meetings"]
-        rows = [[ws.cell(row=r, column=c).value for c in range(1, 11)] for r in (2, 3)]
+        rows = [[ws.cell(row=r, column=c).value for c in range(1, 12)] for r in (2, 3)]
         purposes = {row[2] for row in rows}
-        sources = {row[8] for row in rows}
+        sources = {row[9] for row in rows}
         assert "align on cost model" in purposes
         assert "- Kickoff with data team" in purposes
         assert sources == {"meetings.json", "initiative-field"}
+        assert "biweekly" in {row[7] for row in rows}

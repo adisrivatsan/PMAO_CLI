@@ -59,7 +59,7 @@ SIGNAL_COLS = [
 
 MEETING_COLS = [
     "id", "initiative", "purpose", "convener", "attendees",
-    "functions", "target_timing", "status", "row_source", "created",
+    "functions", "target_timing", "cadence", "status", "row_source", "created",
 ]
 
 REVIEW_QUEUE_COLS = ["staging_file", "category", "initiative_id", "summary"]
@@ -299,7 +299,7 @@ def create_workbook(
                 "id": "", "initiative": init.name,
                 "purpose": init.outstanding_meetings,
                 "convener": "", "attendees": "", "functions": "",
-                "target_timing": "", "status": "open",
+                "target_timing": "", "cadence": "", "status": "open",
                 "row_source": "initiative-field", "created": "",
             })
     for row_num, record in enumerate(meeting_rows, start=2):
