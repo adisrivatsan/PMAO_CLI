@@ -28,7 +28,7 @@ Apply the same extraction logic as ingest. The user note may describe:
 
 - Only update initiatives explicitly mentioned in the note
 - Never guess owners — if unclear, add as an open question
-- If the user says a field should be cleared, output empty string `""` for that field
+- If the user says a field should be cleared, output the literal string `"[clear]"` for that field — an empty string `""` means "no new information, leave the field unchanged"
 - Source tag for manually entered notes: `[notes]`
 
 ## Response format

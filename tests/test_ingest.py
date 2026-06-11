@@ -134,6 +134,58 @@ def test_apply_updates_leaves_field_when_new_is_empty():
         assert initiatives[0].current_state == "New state"
 
 
+def test_apply_updates_clears_field_with_clear_sentinel():
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp)
+        init_vault(vault)
+        init = _make_initiative(status="in_progress")
+        init.coordination_next_steps = "- Step to be cleared"
+        init.current_state = "Kept state"
+        save_initiatives(vault, [init])
+
+        extraction = {
+            "initiatives_updated": [{
+                "initiative_id": "init-001",
+                "coordination_next_steps": "[clear]",
+                "current_state": "",
+                "outstanding_questions": "",
+                "outstanding_meetings": "",
+                "last_touch_comment": "",
+                "last_touch_timestamp": "",
+                "materials_link": "",
+            }],
+            "action_items": [],
+            "open_questions": [],
+        }
+        apply_updates(vault, extraction, "manual-update-2026-06-11")
+
+        initiatives = load_initiatives(vault)
+        assert initiatives[0].coordination_next_steps is None
+        assert initiatives[0].current_state == "Kept state"
+
+
+def test_apply_updates_clear_sentinel_clears_materials_link():
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp)
+        init_vault(vault)
+        init = _make_initiative(status="in_progress")
+        init.materials_link = "https://example.com/old-deck"
+        save_initiatives(vault, [init])
+
+        extraction = {
+            "initiatives_updated": [{
+                "initiative_id": "init-001",
+                "materials_link": "[clear]",
+            }],
+            "action_items": [],
+            "open_questions": [],
+        }
+        apply_updates(vault, extraction, "manual-update-2026-06-11")
+
+        initiatives = load_initiatives(vault)
+        assert initiatives[0].materials_link is None
+
+
 def test_build_ingest_prompt_substitutes_placeholders():
     skill = "## Initiatives\n{initiatives}\n## Source\n{source}"
     initiatives = [_make_initiative()]

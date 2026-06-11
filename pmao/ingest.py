@@ -7,6 +7,10 @@ from typing import List
 from pmao.models import Initiative
 from pmao.vault import load_initiatives, save_initiatives, refresh_workbook
 
+# Literal value an extraction may use to clear an initiative field (see skills/update.md).
+# Plain empty string "" still means "no new information — leave the field untouched".
+CLEAR_SENTINEL = "[clear]"
+
 
 def _load_skill(skill_name: str) -> str:
     skill_file = resources.files("pmao") / "skills" / f"{skill_name}.md"
@@ -34,29 +38,25 @@ def apply_updates(vault_path: Path, extraction: dict, transcript_name: str) -> N
         if iid not in idx:
             continue
         init = idx[iid]
-        val = update.get("current_state", "")
-        if val:
-            init.current_state = val
-        val = update.get("coordination_next_steps", "")
-        if val:
-            init.coordination_next_steps = val
-        val = update.get("outstanding_questions", "")
-        if val:
-            init.outstanding_questions = val
-        val = update.get("outstanding_meetings", "")
-        if val:
-            init.outstanding_meetings = val
-        val = update.get("last_touch_comment", "")
-        if val:
-            init.last_touch_comment = val
+        for field in (
+            "current_state",
+            "coordination_next_steps",
+            "outstanding_questions",
+            "outstanding_meetings",
+            "last_touch_comment",
+            "materials_link",
+        ):
+            val = update.get(field, "")
+            if val == CLEAR_SENTINEL:
+                setattr(init, field, None)
+            elif val:
+                setattr(init, field, val)
         ts = update.get("last_touch_timestamp", "")
         if ts:
             try:
                 init.last_touch_timestamp = date.fromisoformat(ts)
             except ValueError:
                 pass
-        if update.get("materials_link"):
-            init.materials_link = update["materials_link"]
         if init.status == "not_started":
             init.status = "in_progress"
         init.last_touched = today
