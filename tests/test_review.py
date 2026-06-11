@@ -531,3 +531,17 @@ def test_edit_initiative_id_reflected_in_verdict(monkeypatch):
         edited = [v for v in verdicts if v["verdict"] == "edited"]
         assert edited[0]["initiative_id"] == "init-001"
         assert edited[0]["edited"]["initiative_id"] == ["general", "init-001"]
+
+
+# ── Non-dict top-level staging JSON must be skipped, not crash ──────────────
+
+def test_run_review_skips_non_dict_staging_file(capsys):
+    """A staging file whose top level is a JSON list parses fine but is not a
+    staged extraction — skip it with a warning instead of AttributeError."""
+    from pmao.review import run_review
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = _vault(tmp)
+        (vault / "staging" / "list.json").write_text("[]")
+        run_review(vault)
+        out = capsys.readouterr().out
+        assert "list.json" in out and "Nothing to review." in out

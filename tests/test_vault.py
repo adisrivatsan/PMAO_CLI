@@ -207,3 +207,63 @@ def test_seed_from_csv_missing_name_column_raises_clear_error():
         csv_path.write_text("id,coordination_owner\ninit-001,Alex Jordan\n")
         with pytest.raises(ValueError, match="name"):
             seed_from_csv(vault, csv_path)
+
+
+def test_staging_summaries_skips_non_dict_toplevel_file(capsys):
+    """A staging file containing `[]` is valid JSON but not a staged extraction:
+    skip with a warning naming the file; export/refresh must not crash."""
+    import tempfile
+    from pathlib import Path
+    from pmao.vault import init_vault, staging_summaries, refresh_workbook
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp)
+        init_vault(vault)
+        (vault / "staging" / "0000-list.json").write_text("[]")
+        valid_payload = {
+            "status": "pending_review",
+            "extraction": {
+                "facts": [{"initiative_id": "init-001", "claim": "GM is 62%"}],
+            },
+        }
+        (vault / "staging" / "2026-06-10-good.json").write_text(json.dumps(valid_payload))
+        rows = staging_summaries(vault)
+        assert len(rows) == 1
+        assert rows[0]["summary"] == "GM is 62%"
+        assert "0000-list.json" in capsys.readouterr().out
+        # refresh_workbook must not raise either
+        refresh_workbook(vault)
+
+
+def test_init_vault_refuses_existing_vault():
+    """Re-running init over a populated vault must abort, not wipe canonical data."""
+    import pytest
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp)
+        init_vault(vault)
+        save_initiatives(vault, [_make_initiative()])
+        (vault / "facts.json").write_text(json.dumps(
+            [{"id": "fact-0001", "initiative_id": "init-001", "claim": "GM is 62%"}]))
+        with pytest.raises(FileExistsError):
+            init_vault(vault)
+        assert len(load_initiatives(vault)) == 1
+        assert len(json.loads((vault / "facts.json").read_text())) == 1
+
+
+def test_cmd_init_existing_vault_exits_before_prompting(monkeypatch, capsys):
+    """`pmao init <existing-vault>` must error out without prompting or writing."""
+    import sys
+    import pytest
+    from unittest.mock import patch
+    from pmao.cli import main
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp)
+        init_vault(vault)
+        save_initiatives(vault, [_make_initiative()])
+        prompts = []
+        monkeypatch.setattr("builtins.input", lambda *a: prompts.append(a) or "")
+        with patch.object(sys, "argv", ["pmao", "init", tmp]):
+            with pytest.raises(SystemExit) as exc:
+                main()
+        assert exc.value.code == 1
+        assert prompts == []
+        assert len(load_initiatives(vault)) == 1

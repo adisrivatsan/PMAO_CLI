@@ -5,9 +5,14 @@ from pathlib import Path
 
 def cmd_init(args) -> None:
     from pmao.vault import init_vault, seed_from_csv
+    vault = Path(args.vault)
+    for marker in ("project-config.yaml", "initiatives.json"):
+        if (vault / marker).exists():
+            print(f"Error: {vault} already contains {marker} — refusing to overwrite "
+                  f"an existing vault. Delete the directory first to re-init.", file=sys.stderr)
+            sys.exit(1)
     project_name = input("Project name: ").strip() or "My Project"
     owner = input("Primary owner/project manager: ").strip()
-    vault = Path(args.vault)
     init_vault(vault, project_name=project_name, owner=owner)
     print(f"Vault created: {vault.resolve()}")
     print(f"  project-config.yaml — project settings")

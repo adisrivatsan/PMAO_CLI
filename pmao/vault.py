@@ -21,6 +21,12 @@ VAULT_FILES = [
 
 
 def init_vault(vault_path: Path, project_name: str = "My Project", owner: str = "") -> None:
+    for marker in ("project-config.yaml", "initiatives.json"):
+        if (vault_path / marker).exists():
+            raise FileExistsError(
+                f"{vault_path} already contains {marker} — refusing to overwrite "
+                f"an existing vault. Delete the directory first to re-init."
+            )
     vault_path.mkdir(parents=True, exist_ok=True)
     (vault_path / "transcripts").mkdir(exist_ok=True)
     (vault_path / "staging").mkdir(exist_ok=True)
@@ -90,6 +96,9 @@ def staging_summaries(vault_path: Path) -> list:
         try:
             staged = json.loads(f.read_text())
         except json.JSONDecodeError:
+            print(f"Warning: skipping corrupt staging file {f.name}")
+            continue
+        if not isinstance(staged, dict):
             print(f"Warning: skipping corrupt staging file {f.name}")
             continue
         if staged.get("status") != "pending_review":

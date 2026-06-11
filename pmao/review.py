@@ -394,6 +394,9 @@ def run_review(vault_path: Path) -> None:
             except json.JSONDecodeError:
                 print(f"Warning: skipping corrupt staging file {f.name}")
                 continue
+            if not isinstance(data, dict):
+                print(f"Warning: skipping corrupt staging file {f.name}")
+                continue
             if data.get("status") == "pending_review":
                 pending.append((f, data))
     if not pending:
