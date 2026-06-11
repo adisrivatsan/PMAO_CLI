@@ -66,6 +66,7 @@ def _validate_extraction(extraction: dict, initiatives: List[Initiative]) -> dic
     extraction.setdefault("alias_flags", [])
     extraction.setdefault("review_flags", [])
     extraction.setdefault("discard_note", "")
+    extraction.setdefault("meta", {})
     known = {i.id for i in initiatives}
     for category, summary_key in ITEM_CATEGORIES.items():
         for item in extraction[category]:

@@ -119,6 +119,15 @@ def test_validate_extraction_flags_unknown_initiative_and_keeps_item():
     assert len(flags) == 1                             # null and "general" not flagged
 
 
+def test_validate_extraction_defaults_meta_and_preserves_existing():
+    from pmao.deep import _validate_extraction
+    out = _validate_extraction({}, [_make_initiative()])
+    assert out["meta"] == {}                           # missing meta defaulted
+    existing = {"meta": {"meeting_slug": "pricing-sync"}}
+    out2 = _validate_extraction(existing, [_make_initiative()])
+    assert out2["meta"] == {"meeting_slug": "pricing-sync"}  # not clobbered
+
+
 def test_write_staging_shape_and_collision_suffix():
     from pathlib import Path
     from pmao.deep import _write_staging, PROMPT_VERSION
