@@ -121,7 +121,7 @@ def run_ingest_deep(vault_path: Path, source_path: Path, config_override: str = 
         for flag in extraction["review_flags"]:
             print(f"  - {flag}")
 
-    if not any(counts.values()):
+    if not any(counts.values()) and not extraction["review_flags"]:
         print("\nNothing extracted — nothing staged.")
         return
 

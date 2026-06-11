@@ -236,3 +236,18 @@ def test_cli_ingest_deep_flag_dispatches():
     kwargs = mock_deep.call_args.kwargs
     assert str(kwargs["vault_path"]) == "v"
     assert str(kwargs["source_path"]) == "s.txt"
+
+
+def test_run_ingest_deep_stages_flags_only_extraction(capsys):
+    from unittest.mock import patch
+    from pmao.deep import run_ingest_deep
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = _deep_vault(tmp)
+        source = vault / "transcripts" / "sync.txt"
+        source.write_text("mostly noise")
+        with patch("pmao.llm.call_structured",
+                   return_value={"review_flags": ["near-discard: vague aside"]}):
+            run_ingest_deep(vault, source)
+        staged_files = list((vault / "staging").glob("*.json"))
+        assert len(staged_files) == 1          # flags alone now stage
+        assert "Staged for review" in capsys.readouterr().out
