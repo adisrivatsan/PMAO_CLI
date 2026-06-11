@@ -278,6 +278,47 @@ def test_workbook_populates_facts_signals_and_review_queue():
         assert wb["Review Queue"].cell(row=2, column=4).value == "build the cost model"
 
 
+def _make_fact(claim):
+    return {"id": "fact-0001", "initiative_id": "init-001",
+            "claim": claim, "stated_by": "Sarah Klein",
+            "authority": "owner", "confidence": "high", "inferred": False,
+            "source_span": "line 12", "source": "sync.vtt", "created": "2026-06-10"}
+
+
+def test_formula_like_value_written_as_text_not_formula():
+    init = _make_initiative()
+    claim = '=HYPERLINK("http://x","y")'
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "wb.xlsx"
+        create_workbook(path, [init], facts=[_make_fact(claim)])
+        wb = load_workbook(path)
+        cell = wb["Facts"].cell(row=2, column=3)
+        assert cell.data_type != "f"
+        assert cell.value == claim
+
+
+def test_control_characters_are_stripped_not_fatal():
+    init = _make_initiative()
+    claim = "cost up 9%\x0b per Q2 review\x00"
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "wb.xlsx"
+        create_workbook(path, [init], facts=[_make_fact(claim)])  # must not raise
+        wb = load_workbook(path)
+        assert wb["Facts"].cell(row=2, column=3).value == "cost up 9% per Q2 review"
+
+
+def test_overlong_value_truncated_with_marker():
+    init = _make_initiative()
+    claim = "x" * 40000
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "wb.xlsx"
+        create_workbook(path, [init], facts=[_make_fact(claim)])
+        wb = load_workbook(path)
+        val = wb["Facts"].cell(row=2, column=3).value
+        assert len(val) <= 32767
+        assert val.endswith("[truncated]")
+
+
 def test_meetings_tab_combines_structured_and_initiative_field():
     import tempfile
     from datetime import date

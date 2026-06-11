@@ -195,3 +195,15 @@ def test_refresh_workbook_renders_canonical_and_staged():
         wb = load_workbook(vault / "workbook.xlsx")
         assert wb["Facts"].cell(row=2, column=3).value == "a fact"
         assert wb["Review Queue"].cell(row=2, column=4).value == "staged fact"
+
+
+def test_seed_from_csv_missing_name_column_raises_clear_error():
+    import pytest
+    from pmao.vault import seed_from_csv
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp)
+        init_vault(vault)
+        csv_path = vault / "roster.csv"
+        csv_path.write_text("id,coordination_owner\ninit-001,Alex Jordan\n")
+        with pytest.raises(ValueError, match="name"):
+            seed_from_csv(vault, csv_path)

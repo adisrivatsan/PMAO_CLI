@@ -134,6 +134,11 @@ def seed_from_csv(vault_path: Path, csv_path: Path) -> int:
     initiatives = []
     with open(csv_path, encoding="utf-8") as f:
         reader = csv.DictReader(f)
+        if "name" not in (reader.fieldnames or []):
+            raise ValueError(
+                f"CSV {csv_path.name} is missing the required 'name' column "
+                f"(found columns: {', '.join(reader.fieldnames or []) or 'none'})"
+            )
         for i, row in enumerate(reader):
             initiatives.append(Initiative(
                 id=row.get("id") or f"init-{i + 1:03d}",

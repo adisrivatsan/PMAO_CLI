@@ -2,11 +2,16 @@ from pathlib import Path
 from typing import List, Optional
 
 from openpyxl import Workbook
+from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.formatting.rule import FormulaRule
 from openpyxl.utils import get_column_letter
 
 from pmao.models import Initiative
+
+# Excel's hard limit on characters per cell
+_MAX_CELL_LEN = 32767
+_TRUNCATION_MARKER = " … [truncated]"
 
 # ── Column definitions ─────────────────────────────────────────────────────────
 
@@ -88,7 +93,16 @@ def _write_header_row(ws, cols: list) -> None:
 def _write_data_row(ws, row_num: int, cols: list, record: dict) -> None:
     for ci, col_name in enumerate(cols, start=1):
         val = record.get(col_name, "") or ""
+        if isinstance(val, str):
+            # Strip control chars openpyxl rejects (can arrive verbatim from transcripts)
+            val = ILLEGAL_CHARACTERS_RE.sub("", val)
+            # Excel silently truncates past 32767 chars — truncate explicitly with a marker
+            if len(val) > _MAX_CELL_LEN:
+                val = val[: _MAX_CELL_LEN - len(_TRUNCATION_MARKER)] + _TRUNCATION_MARKER
         cell = ws.cell(row=row_num, column=ci, value=val)
+        if isinstance(val, str) and val.startswith("="):
+            # Force '='-prefixed text to be stored as a string, not a live formula
+            cell.data_type = "s"
         cell.alignment = Alignment(wrap_text=True, vertical="top")
         cell.border = _BORDER
 
