@@ -123,6 +123,53 @@ def test_run_syndicate_flags_unknown_initiative_id():
         assert any("init-999" in f for f in ext["review_flags"])
 
 
+def test_run_syndicate_prompt_history_includes_open_items_only():
+    """Spec 3 Testing bullet 1: {history} must include decisions, open questions, and
+    open/scheduled meetings (with cadence) for the initiative, plus outstanding_meetings
+    free text — and exclude resolved/closed/other-initiative records."""
+    from unittest.mock import patch
+    from pmao.syndicate import run_syndicate
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = _vault(tmp)
+        save_initiatives(vault, [
+            Initiative(id="init-001", name="Pricing", status="in_progress",
+                       outstanding_meetings="CFO sync still outstanding",
+                       created=date(2026, 6, 1), last_touched=date(2026, 6, 1)),
+            Initiative(id="init-002", name="Other", status="in_progress",
+                       created=date(2026, 6, 1), last_touched=date(2026, 6, 1)),
+        ])
+        (vault / "decisions.json").write_text(json.dumps([
+            {"id": "dec-1", "initiative_id": "init-001", "decision": "Adopt tiered pricing"},
+            {"id": "dec-2", "initiative_id": "init-002", "decision": "Other-initiative decision"},
+        ]))
+        (vault / "questions.json").write_text(json.dumps([
+            {"id": "q-1", "initiative_id": "init-001", "status": "open",
+             "question": "What is the discount floor?"},
+            {"id": "q-2", "initiative_id": "init-001", "status": "resolved",
+             "question": "Already-resolved question"},
+        ]))
+        (vault / "meetings.json").write_text(json.dumps([
+            {"id": "mtg-1", "initiative_id": "init-001", "status": "open",
+             "purpose": "Pricing working session", "target_timing": "next week",
+             "cadence": "weekly until launch"},
+            {"id": "mtg-2", "initiative_id": "init-001", "status": "closed",
+             "purpose": "Closed kickoff retro", "target_timing": "done"},
+            {"id": "mtg-3", "initiative_id": "init-002", "status": "open",
+             "purpose": "Other-initiative meeting", "target_timing": "tbd"},
+        ]))
+        with patch("pmao.llm.call_structured", return_value=dict(SYNDICATE_OUTPUT)) as mock:
+            run_syndicate(vault, "init-001")
+        prompt = mock.call_args[0][0]
+        assert "decision: Adopt tiered pricing" in prompt
+        assert "open question: What is the discount floor?" in prompt
+        assert "open meeting: Pricing working session (next week, cadence: weekly until launch)" in prompt
+        assert "outstanding meetings (free text): CFO sync still outstanding" in prompt
+        assert "Already-resolved question" not in prompt
+        assert "Closed kickoff retro" not in prompt
+        assert "Other-initiative decision" not in prompt
+        assert "Other-initiative meeting" not in prompt
+
+
 def test_run_syndicate_stages_standard_extraction_shape():
     """Fix: staged syndicate extraction must be a standard staging extraction —
     all STAGED_CATEGORIES keys present (others empty), plus alias_flags and discard_note."""
