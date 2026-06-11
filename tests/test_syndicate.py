@@ -8,7 +8,7 @@ import pytest
 from pmao.models import Initiative
 from pmao.vault import init_vault, save_initiatives, load_list
 
-SKILL_PATH = Path(__file__).parent.parent / "skills" / "syndicate.md"
+SKILL_PATH = Path(__file__).parent.parent / "pmao" / "skills" / "syndicate.md"
 PLACEHOLDERS = ["{initiative}", "{roster}", "{history}", "{signals}"]
 
 SYNDICATE_OUTPUT = {

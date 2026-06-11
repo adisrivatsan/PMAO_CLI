@@ -1,5 +1,6 @@
 import json
 from datetime import date
+from importlib import resources
 from pathlib import Path
 from typing import List
 
@@ -8,9 +9,8 @@ from pmao.vault import load_initiatives, save_initiatives, refresh_workbook
 
 
 def _load_skill(skill_name: str) -> str:
-    skills_dir = Path(__file__).parent.parent / "skills"
-    skill_file = skills_dir / f"{skill_name}.md"
-    if not skill_file.exists():
+    skill_file = resources.files("pmao") / "skills" / f"{skill_name}.md"
+    if not skill_file.is_file():
         raise FileNotFoundError(f"Skill file not found: {skill_file}")
     return skill_file.read_text(encoding="utf-8")
 

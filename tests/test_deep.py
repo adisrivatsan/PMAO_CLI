@@ -1,6 +1,6 @@
 from pathlib import Path
 
-SKILL_PATH = Path(__file__).parent.parent / "skills" / "ingest-deep.md"
+SKILL_PATH = Path(__file__).parent.parent / "pmao" / "skills" / "ingest-deep.md"
 PLACEHOLDERS = ["{initiatives}", "{roster}", "{reconciliation_candidates}", "{calibration}", "{source}"]
 
 

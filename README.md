@@ -17,7 +17,7 @@ pmao maintains a local "vault" of JSON files as source of truth and uses an LLM 
 pmao init my-project/
 
 # 2. Seed initiatives from a CSV (optional)
-pmao init my-project/ --roster templates/initiative-template.csv
+pmao init my-project/ --roster pmao/templates/initiative-template.csv
 
 # 3. Ingest meeting notes or a transcript
 pmao ingest my-project/ --source meeting-notes.md
@@ -93,16 +93,16 @@ my-project/
 
 ## Skill files
 
-All LLM reasoning is in `skills/`. Edit these to change how the LLM interprets your transcripts or formats its output — no Python changes required.
+All LLM reasoning is in `pmao/skills/` (shipped inside the installed package). Edit these to change how the LLM interprets your transcripts or formats its output — no Python changes required.
 
 | File | Used by |
 |------|---------|
-| `skills/ingest.md` | `pmao ingest` — structured extraction from source material |
-| `skills/ingest-deep.md` | `pmao ingest --deep` — staged rich extraction |
-| `skills/update.md` | `pmao update` — interactive field update flow |
-| `skills/status.md` | `pmao status` — status dashboard rendering |
-| `skills/summarize.md` | `pmao summarize` — executive summary generation |
-| `skills/syndicate.md` | `pmao syndicate` — pathway + cadence recommendation |
+| `pmao/skills/ingest.md` | `pmao ingest` — structured extraction from source material |
+| `pmao/skills/ingest-deep.md` | `pmao ingest --deep` — staged rich extraction |
+| `pmao/skills/update.md` | `pmao update` — interactive field update flow |
+| `pmao/skills/status.md` | `pmao status` — status dashboard rendering |
+| `pmao/skills/summarize.md` | `pmao summarize` — executive summary generation |
+| `pmao/skills/syndicate.md` | `pmao syndicate` — pathway + cadence recommendation |
 
 ## Seeding initiatives from CSV
 
@@ -114,7 +114,7 @@ init-001,Customer Data Platform,Jane Smith,John Doe,high
 init-002,Market Expansion,,,medium
 ```
 
-See `templates/initiative-template.csv` for the full template.
+See `pmao/templates/initiative-template.csv` for the full template.
 
 ## Deep ingest and the roster
 
@@ -138,7 +138,7 @@ people:
 
 Without a roster, deep ingest still runs but marks authority `unknown`. A malformed roster is a hard error — fix it before ingesting.
 
-The skill lives at `skills/ingest-deep.md`; edit it to change extraction behavior, no Python required.
+The skill lives at `pmao/skills/ingest-deep.md`; edit it to change extraction behavior, no Python required.
 
 ## Review gate
 
