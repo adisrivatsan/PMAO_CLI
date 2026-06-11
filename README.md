@@ -157,10 +157,11 @@ pmao status my-project/ --backend claude
 pmao ingest my-project/ --source notes.md --backend codex
 ```
 
-Or set it permanently in `project-config.yaml`:
+Or set it permanently in the vault's `project-config.yaml` (the `--backend` flag wins when both are set; leave `llm_backend` null to auto-detect from PATH):
 
 ```yaml
 llm_backend: claude
+llm_timeout_seconds: 120
 ```
 
 ## Examples

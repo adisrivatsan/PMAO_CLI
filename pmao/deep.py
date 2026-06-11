@@ -156,7 +156,7 @@ def run_ingest_deep(vault_path: Path, source_path: Path, config_override: str = 
     )
 
     print("Calling LLM for deep extraction (this may take ~60s)...")
-    extraction = llm.call_structured(prompt, config_override=config_override)
+    extraction = llm.call_structured(prompt, config_override=config_override, vault_path=vault_path)
     extraction = _validate_extraction(extraction, initiatives)
 
     counts = {cat: len(extraction[cat]) for cat in ITEM_CATEGORIES}

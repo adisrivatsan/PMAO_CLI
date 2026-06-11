@@ -150,7 +150,7 @@ def run_ingest(
     prompt = _build_ingest_prompt(skill, initiatives, text)
 
     print("Calling LLM for extraction (this may take ~30s)...")
-    extraction = call_structured(prompt, config_override=config_override)
+    extraction = call_structured(prompt, config_override=config_override, vault_path=vault_path)
     extraction.setdefault("initiatives_updated", [])
     extraction.setdefault("action_items", [])
     extraction.setdefault("open_questions", [])
@@ -203,7 +203,7 @@ def run_status(vault_path: Path, config_override: str = None) -> None:
         for i in initiatives
     )
     prompt = skill.replace("{initiatives}", init_list)
-    print(call_text(prompt, config_override=config_override))
+    print(call_text(prompt, config_override=config_override, vault_path=vault_path))
 
     hyp_path = vault_path / "hypotheses.json"
     hypotheses = json.loads(hyp_path.read_text()) if hyp_path.exists() else []
@@ -240,7 +240,7 @@ def run_update(vault_path: Path, config_override: str = None, yes: bool = False)
     prompt = _build_update_prompt(skill, initiatives, user_note)
 
     print("Calling LLM for extraction...")
-    extraction = call_structured(prompt, config_override=config_override)
+    extraction = call_structured(prompt, config_override=config_override, vault_path=vault_path)
     extraction.setdefault("initiatives_updated", [])
     extraction.setdefault("action_items", [])
     extraction.setdefault("open_questions", [])
@@ -306,4 +306,4 @@ def run_summarize(vault_path: Path, config_override: str = None) -> None:
         default=str,
     )
     prompt = skill.replace("{project_state}", state)
-    print(call_text(prompt, config_override=config_override))
+    print(call_text(prompt, config_override=config_override, vault_path=vault_path))

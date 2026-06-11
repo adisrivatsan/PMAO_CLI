@@ -57,7 +57,7 @@ def run_syndicate(vault_path: Path, initiative_id: str, config_override: str = N
     )
 
     print(f"Recommending syndication pathway for {init.name} (this may take ~30s)...")
-    result = llm.call_structured(prompt, config_override=config_override)
+    result = llm.call_structured(prompt, config_override=config_override, vault_path=vault_path)
     if not isinstance(result, dict):
         raise ValueError(
             f"LLM returned JSON of type {type(result).__name__}, "

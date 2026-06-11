@@ -320,3 +320,24 @@ def test_run_status_prints_hypothesis_count(capsys):
         assert "Hypotheses: 2 open" in captured.out
         assert "1 initiative-level" in captured.out
         assert "1 project-level" in captured.out
+
+
+def test_run_status_uses_vault_config_backend_and_timeout():
+    import yaml
+
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp)
+        init_vault(vault)
+        save_initiatives(vault, [_make_initiative()])
+        config = yaml.safe_load((vault / "project-config.yaml").read_text())
+        config["llm_backend"] = "codex"
+        config["llm_timeout_seconds"] = 11
+        (vault / "project-config.yaml").write_text(yaml.dump(config))
+
+        with patch("pmao.llm._run", return_value="STATUS OUTPUT") as run, \
+             patch("pmao.ingest._load_skill", return_value="{initiatives}"):
+            from pmao.ingest import run_status
+            run_status(vault)
+
+        assert run.call_args[0][0] == "codex"
+        assert run.call_args[0][2] == 11
