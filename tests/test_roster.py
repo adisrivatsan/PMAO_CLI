@@ -81,3 +81,86 @@ def test_render_roster_none_gives_no_roster_text():
     text = render_roster(None)
     assert "No roster was provided" in text
     assert "unknown" in text
+
+
+def test_render_roster_none_is_context_neutral():
+    # The fallback is shared by the deep-ingest and syndicate prompts, so it
+    # must not leak deep-ingest-only wording like 'principal_signals'.
+    text = render_roster(None)
+    assert "principal_signals" not in text
+
+
+def test_load_roster_non_string_name_raises():
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp)
+        (vault / "roster.yaml").write_text("people:\n  - name: 2026\n")
+        with pytest.raises(RosterError, match=r"people\[0\].*name"):
+            load_roster(vault)
+
+
+def test_load_roster_boolean_name_raises():
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp)
+        (vault / "roster.yaml").write_text("people:\n  - name: true\n")
+        with pytest.raises(RosterError, match=r"people\[0\].*name"):
+            load_roster(vault)
+
+
+def test_load_roster_scalar_aliases_raises():
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp)
+        (vault / "roster.yaml").write_text(
+            "people:\n  - name: Bob\n    aliases: Bobby\n"
+        )
+        with pytest.raises(RosterError, match=r"people\[0\].*aliases"):
+            load_roster(vault)
+
+
+def test_load_roster_non_string_alias_item_raises():
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp)
+        (vault / "roster.yaml").write_text(
+            "people:\n  - name: Bob\n    aliases: [Bobby, 7]\n"
+        )
+        with pytest.raises(RosterError, match=r"people\[0\].*aliases"):
+            load_roster(vault)
+
+
+def test_load_roster_null_alias_item_raises():
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp)
+        (vault / "roster.yaml").write_text(
+            "people:\n  - name: Bob\n    aliases: [null]\n"
+        )
+        with pytest.raises(RosterError, match=r"people\[0\].*aliases"):
+            load_roster(vault)
+
+
+def test_load_roster_scalar_domains_raises():
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp)
+        (vault / "roster.yaml").write_text(
+            "people:\n  - name: Bob\n    domains: pricing\n"
+        )
+        with pytest.raises(RosterError, match=r"people\[0\].*domains"):
+            load_roster(vault)
+
+
+def test_load_roster_non_string_lever_raises():
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp)
+        (vault / "roster.yaml").write_text(
+            "people:\n  - name: Sarah\n    decision_maker: true\n"
+            "    levers: [budget, 3]\n"
+        )
+        with pytest.raises(RosterError, match=r"people\[0\].*levers"):
+            load_roster(vault)
+
+
+def test_load_roster_valid_optional_fields_still_load():
+    with tempfile.TemporaryDirectory() as tmp:
+        vault = Path(tmp)
+        (vault / "roster.yaml").write_text(ROSTER_YAML)
+        people = load_roster(vault)
+        assert people[0]["aliases"] == ["Sarah", "Sarah K"]
+        assert people[1]["domains"] == ["cost model"]
